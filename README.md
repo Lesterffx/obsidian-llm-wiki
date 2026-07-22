@@ -132,6 +132,7 @@ SKILL.md 是 Skill 的核心配置，定义了：
 
 1. 告知你的知识库有哪些领域（如"读书笔记"、"AI"、"投资"）
 2. 使用 `references/schema.md` 模板生成项目专属的 CLAUDE.md
+   > Codex / 其他 agent 用户把文件名换成 `AGENTS.md` 即可，规则相同。
 3. 创建 `raw/` 和 `wiki/` 目录结构
 4. 创建空的 `index.md` 和 `log.md`
 
