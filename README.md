@@ -29,7 +29,7 @@ LLM Wiki 的做法不同：LLM **持续构建和维护一个持久化的 wiki** 
 
 - **raw/** — 不可变原始资料。PDF、文章、网页剪藏、数据文件。LLM 只读取，绝不修改。这是事实来源。
 - **wiki/** — LLM 生成的 markdown 文件。摘要、实体页面、概念页面、比较分析、综合报告。LLM 完全拥有这一层 —— 创建页面、更新页面、维护交叉引用、保持一致性。你阅读它，LLM 编写它。
-- **Schema (CLAUDE.md)** — 告诉 LLM wiki 的结构、约定、工作流的配置文件。这是让 LLM 成为有纪律的 wiki 维护者而非通用聊天机器人的关键。你和 LLM 随着时间推移共同演化这个文件。
+- **Schema（`AGENTS.md` / `CLAUDE.md`，可双入口）** — 告诉 LLM wiki 的结构、约定、工作流的配置文件。推荐双入口：两份文件保存完全相同的内容，运行时只应用对应适配章节；结构变更时同步编辑两文件并验证 SHA-256。这是让 LLM 成为有纪律的 wiki 维护者而非通用聊天机器人的关键。你和 LLM 随着时间推移共同演化这个文件。
 
 ## Obsidian 集成
 
@@ -45,17 +45,20 @@ Obsidian 是这个方案的理想前端：
 
 - **Claude Code CLI** —— 已安装并配置（[安装指引](https://docs.anthropic.com/en/docs/claude-code)）
 - **Obsidian** —— 本地已安装，vault 目录可被 Claude Code 访问
-- **CLAUDE.md** —— 每个 Obsidian vault 根目录必须有此配置文件。如果不存在，Skill 会引导你初始化
+- **Schema（`AGENTS.md` 或 `CLAUDE.md`，推荐双入口）** —— 每个 Obsidian vault 根目录必须有 schema 文件。如果不存在，Skill 会引导你初始化。双入口时两文件字节一致并验 SHA-256
 
 ## 限制条件
 
 - 绝不修改 `raw/` 下的文件（不可变层）
 - 覆盖已有 wiki 内容前须用户确认
+- 编辑 wiki 页面时绝不删除已有图片引用（`![[...]]`），编辑前后校验图片引用完整性
 - `log.md` 条目 append-only，不删除已有条目
 - 保持中文为主要内容语言
 - 不破坏已有 wiki 链接
-- 编辑 wiki 页面时绝不删除已有图片引用，编辑前后须校验图片引用完整性
-- 所有路径和领域从项目 CLAUDE.md 读取，不硬编码
+- 所有路径和领域从项目 schema（`AGENTS.md` / `CLAUDE.md`）读取，不硬编码
+- 双入口 schema 字节一致：结构变更同步两文件并验 SHA-256
+- 不虚构来源、数据、引用或验证结果
+- 中文路径与带空格路径用 `-LiteralPath` 或显式参数，不走 PowerShell 管道
 
 ## 文件结构
 
@@ -71,7 +74,7 @@ Obsidian 是这个方案的理想前端：
 │   ├── meeting-note.md   # 会议记录
 │   └── tool-page.md      # 工具页面
 └── references/
-    └── schema.md         # CLAUDE.md 通用模板（供新项目初始化）
+    └── schema.md         # AGENTS.md / CLAUDE.md 通用模板（供新项目初始化）
 ```
 
 ### Obsidian 仓库结构
@@ -102,9 +105,9 @@ Obsidian 是这个方案的理想前端：
 |---|---|
 | `/obsidian-llm-wiki ingest <来源>` | 处理 raw/ 中的新资料，集成到 wiki。可能更新 10-15 个相关页面 |
 | `/obsidian-llm-wiki query <问题>` | 使用 wiki 回答问题，综合多个页面并引用来源 |
-| `/obsidian-llm-wiki lint` | 健康检查：矛盾、孤立页面、缺失引用、过期内容 |
+| `/obsidian-llm-wiki lint` | 健康检查：矛盾、孤立页面、缺失引用、过期内容；同时校验 `index.md` 顶部维护块、底部三变量统计行与索引健康行的同步契约（六变量精校 + 双入口 schema 字节一致） |
 | `/obsidian-llm-wiki migrate` | 一次性迁移：将已有笔记迁移到 LLM Wiki 模式 |
-| `/obsidian-llm-wiki index` | 从当前 wiki 状态重建 index.md |
+| `/obsidian-llm-wiki index` | 从当前 wiki 状态**全量重建** `index.md`，按三权威变量 + 三健康变量 + 索引健康行刷新。增量更新由 ingest/optimize/extract-thinking-frameworks/migrate/delete 触发；本命令只做全量重建。详见 SKILL.md `## Index Metadata And Statistics` |
 
 ## SKILL.md 关键内容
 
@@ -114,6 +117,8 @@ SKILL.md 是 Skill 的核心配置，定义了：
 2. **模板优先级** —— 项目 `templates/` 目录 > Skill `assets/` 目录。模板中 `{{domain}}`、`{{date}}` 等占位符由 Claude 根据项目 CLAUDE.md 填写
 3. **页面规范** —— 每个 wiki 页面必须包含 YAML frontmatter（title、created、updated、domain、tags、sources、status）、inline tags、一句话摘要、正文、相关链接、来源引用
 4. **工作流守则** —— raw/ 只读、覆盖前确认、日志 append-only、从 CLAUDE.md 读取配置而非硬编码
+5. **index.md 同步契约** —— 顶部维护块、底部三变量统计行（`indexed_page_count` / `wiki_file_count` / `registered_domain_count`）与索引健康行（`missing_count` / `broken_count` / `duplicate_count`）的精确格式、六变量计数口径、强制维护遍历（Mandatory Maintenance Pass）与所有写命令的同步刷新策略（`## Index Metadata And Statistics`）
+6. **运行时与网关适配** —— 读图前的单图视觉通道探测（智谱 GLM 等网关下 `Read` 图片可能仅返回 CDN 回执而无视觉内容）、视觉不可用时的 6 步降级（manifest 照建、视觉字段标"视觉未识别"、基于已有文字提炼、不虚构）、以及大 `log.md` 的 EOF 直追（bash heredoc / `Add-Content -LiteralPath`，不为追加而整读）。详见 SKILL.md `## 运行时与网关适配`
 
 ## 快速开始
 
