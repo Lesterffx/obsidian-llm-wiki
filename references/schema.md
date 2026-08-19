@@ -214,8 +214,8 @@ Schema 或索引已经正确时记录“已检查，无需更新”，不要为�
 1. 扫描 Vault 的实际 `raw/`、`wiki/` 目录；
 2. 按稳定层级策略填写模板，不登记内容叶子；
 3. 填写领域注册表，不复制其他 Vault 的领域或数量；
-4. 保存为 Vault 根目录的 `CLAUDE.md`（Claude Code 原生自动加载，默认与首选）；
-5. 若同一 vault 也用 Codex / 其他 agent，把完全相同的内容另存为 `AGENTS.md`（双入口，见 SKILL.md 三情形 case 1）；
+4. 按你用的运行时保存到 Vault 根目录：Claude Code → `CLAUDE.md`；Codex / 其他 agent → `AGENTS.md`；
+5. 多运行时并存则两份都存（完全相同）；单运行时单文件即合法配置；
 6. 同时保留 Codex 与 Claude Code 适配章节；
 7. 创建或检查 `index.md`、`log.md`；
 8. 计算三个权威变量和三个健康变量，写入统一索引模板；

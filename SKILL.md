@@ -21,7 +21,7 @@ description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wi
 
 1. **声明双入口字节契约**（两文件内容完全相同，典型如 Lester 知识库）：两份文件必须字节一致；结构变更时**同一次编辑同步两个文件**，并验证 SHA-256 相等；运行时只应用与当前运行时匹配的适配章节（Claude Code 侧用 Claude Code 适配章节）。这是项目契约，不是建议。
 2. **未声明契约且两文件冲突**：Claude Code 侧以 `CLAUDE.md` 为准，并在结果中记录任务相关的冲突，提示用户裁定。
-3. **仅存在一个 schema 文件**：直接使用之。本地默认与最常见即单个 `CLAUDE.md`（Claude Code 原生自动加载）；Codex 单文件通常是 `AGENTS.md`。
+3. **仅存在一个 schema 文件**：直接使用之（Claude Code 单文件通常是 `CLAUDE.md`，Codex 单文件通常是 `AGENTS.md`，均为合法配置）。
 
 > 所有路径、领域、frontmatter 规范从 schema 读取，**不硬编码**。发现双入口契约下两文件不一致时，必须报告，不擅自改写。
 
@@ -69,7 +69,7 @@ description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wi
 使用前，项目根目录必须有 schema 文件（本地默认与推荐：单个 `CLAUDE.md`，Claude Code 原生自动加载）。如果不存在，引导用户初始化：
 
 1. 询问用户的知识库有哪些领域（如"读书笔记"、"AI"、"投资"）
-2. 使用 [references/schema.md](references/schema.md) 作为模板，生成项目专属的 `CLAUDE.md`（Claude Code 原生自动加载，本地默认与首选）。若同一 vault 也用 Codex / 其他 agent，再把完全相同的内容另存为 `AGENTS.md`（双入口，处理见三情形 case 1）。
+2. 使用 [references/schema.md](references/schema.md) 作为模板，按你用的运行时落盘 schema：Claude Code 生成 `CLAUDE.md`，Codex / 其他 agent 生成 `AGENTS.md`；多运行时并存则两份都存（字节完全相同，保留双入口契约）。单文件即合法配置，不强制双入口。
 3. 创建 `raw/` 和 `wiki/` 目录结构
 4. 创建空的 `index.md` 和 `log.md`
 5. 在 Obsidian 设置中将 `attachmentFolderPath` 设为 `raw`（新图片暂存 raw/ 根目录，ingest 时按领域整理到对应子目录）
