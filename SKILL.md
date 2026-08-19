@@ -5,15 +5,15 @@ description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wi
 
 # Obsidian LLM Wiki Skill
 
-用 LLM 持续维护 Obsidian 知识库。基于 raw / wiki / schema 三层架构：`raw/` 不可变源资料（只读），`wiki/` LLM 维护的知识层（可写），`AGENTS.md` / `CLAUDE.md` 为 schema。LLM 是维护者，人类负责策划原始资料、提问、引导方向。
+用 LLM 持续维护 Obsidian 知识库。基于 raw / wiki / schema 三层架构：`raw/` 不可变源资料（只读），`wiki/` LLM 维护的知识层（可写），`CLAUDE.md` / `AGENTS.md` 为 schema。LLM 是维护者，人类负责策划原始资料、提问、引导方向。
 
-本 Skill 是**通用方法论层**：subagent 批量分析、image manifest、文档预处理运行时、强制维护遍历、安全规则等跨 vault 复用的机制都在这里。项目特定的配置（领域、raw 目录树、运行环境）由项目根的 `AGENTS.md` / `CLAUDE.md` 承载，本 Skill 不重复。
+本 Skill 是**通用方法论层**：subagent 批量分析、image manifest、文档预处理运行时、强制维护遍历、安全规则等跨 vault 复用的机制都在这里。项目特定的配置（领域、raw 目录树、运行环境）由项目根的 `CLAUDE.md` / `AGENTS.md` 承载，本 Skill 不重复。
 
 ## Grounding（schema 优先级与读取顺序）
 
 每次进入一个 vault，按优先级读取 schema，确立架构、领域、路径、规则：
 
-1. **`AGENTS.md` / `CLAUDE.md`**（schema 入口）— 见下方三情形
+1. **`CLAUDE.md` / `AGENTS.md`**（schema 入口）— 见下方三情形
 2. **`index.md`** — 现有内容目录，了解已有页面
 3. **`log.md`**（尾部）— 近期操作，了解最新变更
 
@@ -21,7 +21,7 @@ description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wi
 
 1. **声明双入口字节契约**（两文件内容完全相同，典型如 Lester 知识库）：两份文件必须字节一致；结构变更时**同一次编辑同步两个文件**，并验证 SHA-256 相等；运行时只应用与当前运行时匹配的适配章节（Claude Code 侧用 Claude Code 适配章节）。这是项目契约，不是建议。
 2. **未声明契约且两文件冲突**：Claude Code 侧以 `CLAUDE.md` 为准，并在结果中记录任务相关的冲突，提示用户裁定。
-3. **仅存在一个 schema 文件**：直接使用之。
+3. **仅存在一个 schema 文件**：直接使用之。本地默认与最常见即单个 `CLAUDE.md`（Claude Code 原生自动加载）；Codex 单文件通常是 `AGENTS.md`。
 
 > 所有路径、领域、frontmatter 规范从 schema 读取，**不硬编码**。发现双入口契约下两文件不一致时，必须报告，不擅自改写。
 
@@ -66,10 +66,10 @@ description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wi
 
 ## 前置条件（初始化）
 
-使用前，项目根目录必须有 schema 文件（`AGENTS.md` 或 `CLAUDE.md`，推荐双入口）。如果不存在，引导用户初始化：
+使用前，项目根目录必须有 schema 文件（本地默认与推荐：单个 `CLAUDE.md`，Claude Code 原生自动加载）。如果不存在，引导用户初始化：
 
 1. 询问用户的知识库有哪些领域（如"读书笔记"、"AI"、"投资"）
-2. 使用 [references/schema.md](references/schema.md) 作为模板，生成项目专属的 `AGENTS.md`（如需 Claude Code 兼容，把完全相同的内容另存为 `CLAUDE.md`，并保留双入口契约）
+2. 使用 [references/schema.md](references/schema.md) 作为模板，生成项目专属的 `CLAUDE.md`（Claude Code 原生自动加载，本地默认与首选）。若同一 vault 也用 Codex / 其他 agent，再把完全相同的内容另存为 `AGENTS.md`（双入口，处理见三情形 case 1）。
 3. 创建 `raw/` 和 `wiki/` 目录结构
 4. 创建空的 `index.md` 和 `log.md`
 5. 在 Obsidian 设置中将 `attachmentFolderPath` 设为 `raw`（新图片暂存 raw/ 根目录，ingest 时按领域整理到对应子目录）
