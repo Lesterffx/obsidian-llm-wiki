@@ -47,6 +47,56 @@ Obsidian 是这个方案的理想前端：
 - **Obsidian** —— 本地已安装，vault 目录可被 Claude Code 访问
 - **Schema（`AGENTS.md` 或 `CLAUDE.md`，推荐双入口）** —— 每个 Obsidian vault 根目录必须有 schema 文件。如果不存在，Skill 会引导你初始化。双入口时两文件字节一致并验 SHA-256
 
+## 视觉 MCP 配置（可选）：智谱视觉理解 zai-mcp-server
+
+第三方网关（如智谱 GLM）下 `Read` 图片可能仅返回 CDN 回执而无视觉内容（详见 SKILL.md「运行时与网关适配」）。配置智谱官方**视觉理解 MCP `zai-mcp-server`**（接入 GLM-4.6V，提供图像分析、OCR、技术图纸解读、图表阅读、视频理解等 8 个工具）后，即使网关多模态通道失效，Skill 仍可通过该 MCP 读图——`image_source` 支持本地绝对路径（含中文与空格路径）。
+
+- 官方文档：<https://docs.bigmodel.cn/cn/coding-plan/mcp/vision-mcp-server>
+- 前提：安装 [Node.js 18+](https://nodejs.org/en/download/)；从智谱[个人编程套餐](https://bigmodel.cn/coding-plan/personal/overview)或团队套餐（团队套餐 Key 与平台其他 API Key 不通用）获取 API Key
+
+### 方式一：一键安装命令
+
+把 `YOUR_API_KEY` 替换为你获取的 API Key：
+
+```bash
+claude mcp add -s user zai-mcp-server --env Z_AI_API_KEY=YOUR_API_KEY -- npx -y "@z_ai/mcp-server"
+```
+
+- 忘记替换 API Key 时，先 `claude mcp list` 确认、`claude mcp remove zai-mcp-server` 卸载旧条目，再重新执行安装命令。
+- Windows PowerShell 下遇到 `-y` 参数问题时，改用命令提示符（CMD）执行同样命令；出现 `Windows requires 'cmd /c' wrapper to execute npx` 告警可以忽略。
+- 旧缓存版本不含 GLM-4.6V 能力时，删除 npx 缓存，或改用 `@z_ai/mcp-server@latest` 强制安装最新版（≥ 0.1.2）。
+
+### 方式二：手动配置 `~/.claude.json`
+
+在用户目录下 `.claude.json` 顶层的 `mcpServers` 中追加（同样把 `YOUR_API_KEY` 替换为你的 API Key）：
+
+```json
+{
+  "mcpServers": {
+    "zai-mcp-server": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@z_ai/mcp-server"
+      ],
+      "env": {
+        "Z_AI_API_KEY": "YOUR_API_KEY",
+        "Z_AI_MODE": "ZHIPU"
+      }
+    }
+  }
+}
+```
+
+环境变量：`Z_AI_API_KEY`（必需，智谱 API Key）、`Z_AI_MODE`（服务平台，`ZHIPU` 或 `ZAI`，默认 `ZHIPU`）。Windows 下 Claude Code 可能自动把 `command` 改写为 `cmd /c npx ...` 形式，属正常行为。配置后重启 Claude Code 生效。
+
+### 使用注意
+
+- **最佳实践**是把图片放在本地目录、在对话中用文件名或路径引用（如"分析 raw/xx/图1.png"）；直接在客户端粘贴图片不会走此 MCP。
+- 该 MCP 是云端通道，图片内容会上送智谱服务器处理；敏感资料请自行评估是否走此通道。
+- 在 Claude Code 中使用 GLM Coding Plan 时，模型服务端已内置 `image_analysis` 工具（仅支持远程 URL）；要获得本地路径读图与全部 8 个工具，仍需安装此 MCP。
+
 ## 限制条件
 
 - 绝不修改 `raw/` 下的文件（不可变层）
@@ -118,7 +168,7 @@ SKILL.md 是 Skill 的核心配置，定义了：
 3. **页面规范** —— 每个 wiki 页面必须包含 YAML frontmatter（title、created、updated、domain、tags、sources、status）、inline tags、一句话摘要、正文、相关链接、来源引用
 4. **工作流守则** —— raw/ 只读、覆盖前确认、日志 append-only、从 CLAUDE.md 读取配置而非硬编码
 5. **index.md 同步契约** —— 顶部维护块、底部三变量统计行（`indexed_page_count` / `wiki_file_count` / `registered_domain_count`）与索引健康行（`missing_count` / `broken_count` / `duplicate_count`）的精确格式、六变量计数口径、强制维护遍历（Mandatory Maintenance Pass）与所有写命令的同步刷新策略（`## Index Metadata And Statistics`）
-6. **运行时与网关适配** —— 读图前的单图视觉通道探测（智谱 GLM 等网关下 `Read` 图片可能仅返回 CDN 回执而无视觉内容）、视觉不可用时的 6 步降级（manifest 照建、视觉字段标"视觉未识别"、基于已有文字提炼、不虚构）、以及大 `log.md` 的 EOF 直追（bash heredoc / `Add-Content -LiteralPath`，不为追加而整读）。详见 SKILL.md `## 运行时与网关适配`
+6. **运行时与网关适配** —— 读图前的视觉通道顺序探测（`Read` 单图 → 视觉理解 MCP 单图；智谱 GLM 等网关下 `Read` 图片可能仅返回 CDN 回执而无视觉内容，此时 `zai-mcp-server` 视觉 MCP 作为兜底通道，配置见上文「视觉 MCP 配置」）、两条通道都不可用时的 6 步降级（manifest 照建、视觉字段标"视觉未识别"、基于已有文字提炼、不虚构）、以及大 `log.md` 的 EOF 直追（bash heredoc / `Add-Content -LiteralPath`，不为追加而整读）。详见 SKILL.md `## 运行时与网关适配`
 
 ## 快速开始
 

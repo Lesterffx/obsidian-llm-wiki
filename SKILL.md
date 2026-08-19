@@ -1,6 +1,6 @@
 ---
 name: obsidian-llm-wiki
-description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wiki 双层 + AGENTS.md/CLAUDE.md schema + index.md + log.md）。支持 ingest、query、optimize、extract-thinking-frameworks、lint、index、migrate、delete；强制维护遍历（Mandatory Maintenance Pass）自动检查并修复 frontmatter/index/schema 结构缺口；index.md 统一三权威变量（indexed_page_count/wiki_file_count/registered_domain_count）+ 三健康变量（missing_count/broken_count/duplicate_count）+ 索引健康行；双入口 schema 字节一致并验 SHA-256。支持用 Claude Code Agent 工具派发只读 subagent 以波次并行分析图片密集资料（截图课程、PPT、扫描件，支持 100–300 张多 Agents 并行读图），用项目 .venv 做 PDF/DOCX/PPTX/XLSX 预处理与 image manifest。触发词：wiki、知识库维护、ingest、preprocess、batch-analyze images、subagent、波次并行、manifest、venv、optimize、lint、index、索引健康、六变量统计、双入口 schema、补录、漂移修正、知识管理、Obsidian 笔记整理、读图降级、视觉通道探测、GLM/MiniMax 网关、log.md 大文件追加。"
+description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wiki 双层 + AGENTS.md/CLAUDE.md schema + index.md + log.md）。支持 ingest、query、optimize、extract-thinking-frameworks、lint、index、migrate、delete；强制维护遍历（Mandatory Maintenance Pass）自动检查并修复 frontmatter/index/schema 结构缺口；index.md 统一三权威变量（indexed_page_count/wiki_file_count/registered_domain_count）+ 三健康变量（missing_count/broken_count/duplicate_count）+ 索引健康行；双入口 schema 字节一致并验 SHA-256。支持用 Claude Code Agent 工具派发只读 subagent 以波次并行分析图片密集资料（截图课程、PPT、扫描件，支持 100–300 张多 Agents 并行读图），用项目 .venv 做 PDF/DOCX/PPTX/XLSX 预处理与 image manifest。触发词：wiki、知识库维护、ingest、preprocess、batch-analyze images、subagent、波次并行、manifest、venv、optimize、lint、index、索引健康、六变量统计、双入口 schema、补录、漂移修正、知识管理、Obsidian 笔记整理、读图降级、视觉通道探测、视觉 MCP、zai-mcp-server、GLM-4.6V、GLM/MiniMax 网关、log.md 大文件追加。"
 ---
 
 # Obsidian LLM Wiki Skill
@@ -149,7 +149,7 @@ PDF/DOCX/PPTX/XLSX 等文档的确定性预处理，与只读 subagent 视觉分
    - 对 raw-only 图片目录：按自然文件名顺序处理。
    - 对 PDF/DOCX/PPTX 源：先用 `.venv` 检查文本、内嵌媒体、page/slide 顺序与文档元数据，再决定如何把图片分配到批次。
    - 若 `sources` 为空或不完整：按精确文件名全库搜索，报告未解析或歧义匹配。
-   - **视觉通道探测**：建 manifest 后、派发读图前，先按 §运行时与网关适配 做单图视觉探测；视觉不可用则走降级（manifest 照建，视觉字段标"视觉未识别"，基于已有文字提炼）。
+   - **视觉通道探测**：建 manifest 后、派发读图前，先按 §运行时与网关适配 做视觉通道顺序探测（`Read` 单图 → 视觉理解 MCP（如 zai-mcp-server）单图）；两条通道都不可用才走降级（manifest 照建，视觉字段标"视觉未识别"，基于已有文字提炼）。
 2. **保留顺序**：已有 wiki 嵌入顺序是权威顺序；raw-only 图片集用自然文件名顺序；优化时不擅自重排嵌入，除非用户明确要求。
 3. **覆盖风险检测（报告而不猜测）**：检测重名文件、缺失文件、非图片嵌入、位于 declared `sources` 之外的图片；**不要猜测**哪个重名图是意图所指——报告出来让用户/主 agent 决定。
 4. **分析可追溯**：中间笔记放工作上下文或最终回复，**不写 `raw/`**；写 wiki 内容时用文件名 + manifest index 标识每张图。
@@ -172,7 +172,7 @@ PDF/DOCX/PPTX/XLSX 等文档的确定性预处理，与只读 subagent 视觉分
 
 **波次（waves）推进大批量**：
 - **单批容量**：每个 subagent 单批控制在合理大小（默认每批 ≤30 张，沿用 11–30 档经验，避免单 subagent 上下文过载）。
-- **单波并发**：每波同时派发 ≤6 个只读 subagent（单条消息内多个 `Agent` tool use 即并发）。Claude Code 动态 Workflow 理论并发上限为 16，但**第三方网关可用性未经验证**，保守取 ≤6。注意：网关并发与"读图视觉通道"是两个独立问题——某些网关下 `Read` 图片仅返回 CDN 上传回执而无视觉内容（见 §运行时与网关适配），需先做单图探测再决定是否派发读图批次。
+- **单波并发**：每波同时派发 ≤6 个只读 subagent（单条消息内多个 `Agent` tool use 即并发）。Claude Code 动态 Workflow 理论并发上限为 16，但**第三方网关可用性未经验证**，保守取 ≤6。注意：网关并发与"读图视觉通道"是两个独立问题——某些网关下 `Read` 图片仅返回 CDN 上传回执而无视觉内容（见 §运行时与网关适配），需先做视觉通道顺序探测再决定读图方式：`Read` 可用则照常派发 Read 批次；`Read` 不可用但视觉 MCP 可用（见 §视觉理解 MCP 通道）时，subagent 已被授予视觉 MCP 工具则照常派发批次（subagent 用 MCP 工具替代 `Read` 读图），未授予则由主线程分批逐张调用 MCP 工具并按 manifest 对账。
 - **多波推进**：当总量超过单波容量（如 100–300 张）时，以**波次**持续推进——主 agent 每波派发 ≤6 个 subagent 并行读图，每波返回后按 manifest 序号对账，再派发下一波，直到 manifest 全部图片处理完。波次数不限（300 张 ÷ 约 90 张/波 ≈ 2–4 波）。运行时并发低于批数时也以波次执行这同一批数目，**不增加批次总数、不削弱大批量能力**。
 
 > 这是对旧版"100+ 首轮 6 批后追加"粗糙表述的规范化：大批量（100–300 张）多 Agents 并行读图能力**保留并增强**为一等能力，对齐 Codex 版 `execute in waves` 思想。
@@ -194,34 +194,59 @@ PDF/DOCX/PPTX/XLSX 等文档的确定性预处理，与只读 subagent 视觉分
 
 **归并对账**：subagent（含跨波次）返回后，**先比对 filename 与 manifest index** 再合成，防止张冠李戴、缺页或重复解析。
 
-## 运行时与网关适配（读图降级 + 大文件日志）
+## 运行时与网关适配（视觉通道 + 读图降级 + 大文件日志）
 
-本 Skill 默认假设主 agent 与只读 subagent 的 `Read` 能正常解析图片像素。但**第三方网关（如智谱 GLM、MiniMax 等兼容 Anthropic 协议的网关）的多模态下推链路未必启用**：实测在某些网关下，`Read` 图片只返回"文件已上传至 CDN"的文本回执（含一个 URL），**不向模型返回视觉内容**——主 agent 与 subagent 都"看不见"图。本节规定探测与降级流程，避免空转、避免虚构。
+本 Skill 默认假设主 agent 与只读 subagent 的 `Read` 能正常解析图片像素。但**第三方网关（如智谱 GLM、MiniMax 等兼容 Anthropic 协议的网关）的多模态下推链路未必启用**：实测在某些网关下，`Read` 图片只返回"文件已上传至 CDN"的文本回执（含一个 URL），**不向模型返回视觉内容**——主 agent 与 subagent 都"看不见"图。此时**视觉理解 MCP**（如智谱 `zai-mcp-server`，接入 GLM-4.6V）可作为独立于网关的视觉通道。本节规定三级视觉通道（`Read` → 视觉 MCP → 降级）的探测与降级流程，避免空转、避免虚构。
+
+### 视觉理解 MCP 通道（zai-mcp-server）
+
+第三方网关 `Read` 失效时的首选兜底视觉通道：智谱官方 Local MCP Server `zai-mcp-server`（npm 包 `@z_ai/mcp-server`，接入 GLM-4.6V；官方文档 https://docs.bigmodel.cn/cn/coding-plan/mcp/vision-mcp-server ），配置于 `~/.claude.json` 顶层 `mcpServers`。安装步骤与 API Key 配置说明见本 skill README 的「视觉 MCP 配置（可选）」一节；**配置示例中的 API Key 一律用占位符，绝不把真实密钥写进任何文件或日志**。
+
+**工具清单与 wiki 九字段映射**（以实际安装的工具名为准；智谱文档中的 `image_analysis` / `video_analysis` 对应实际安装名 `analyze_image` / `analyze_video`）：
+
+| 实际工具名（`mcp__zai-mcp-server__` 前缀） | 用途 | 映射到九字段输出契约 |
+|---|---|---|
+| `analyze_image` | 通用图像理解（兜底）；`image_source` 支持本地绝对路径与远程 URL | 全字段 |
+| `extract_text_from_screenshot` | OCR 文字提取（可指定 programming_language） | `visible_text` |
+| `understand_technical_diagram` | 架构/流程/UML/ER 图结构化解读 | `diagrams_flows_ui` |
+| `analyze_data_visualization` | 图表/仪表盘数据提炼 | `diagrams_flows_ui` + `key_points` |
+| `diagnose_error_screenshot` | 错误弹窗/堆栈/日志截图诊断 | wiki 场景少用 |
+| `ui_to_artifact` | UI 截图转代码/提示词/设计规范 | wiki 场景少用 |
+| `ui_diff_check` | 对比两张 UI 截图差异 | 校验场景 |
+| `analyze_video` | 视频解析；本地文件 ≤8MB，MP4/MOV/M4V | 拓展能力（如视频类领域） |
+
+**调用约定**：
+
+- `image_source` 传**本地绝对路径**（中文与空格路径直接传，不走 PowerShell 管道）；单图单工具调用，逐张按 manifest index 对账。
+- 按图型选工具：常规截图/扫描件用 `analyze_image` 兜底；文字密集图优先 `extract_text_from_screenshot`；架构/流程图优先 `understand_technical_diagram`；统计图表优先 `analyze_data_visualization`。
+- **隐私边界**：视觉 MCP 是云端通道，图片内容会上送智谱服务器处理；涉及敏感资料时先经用户确认再走此通道。
+- **subagent 授权**：要让只读 subagent（如 `image-reader`）在此通道下读图，项目需在其 agent 定义的 `tools` 中显式授予对应 `mcp__zai-mcp-server__*` 工具；未授予时由主线程分批逐张调用。
 
 ### 图片读取能力探测（读图前必做一次）
 
-- **单图探测**：派发任何读图批次前，主 agent 先在主线程 `Read` **一张**代表性图（优先概念图、含文字最多的图，如"X VS Y"对比图）。
-- **判定**：
-  - 返回内容含图片视觉信息 → **视觉通道可用**，走正常 subagent 批量分析（§Subagent 批量分析）。
-  - 返回内容仅为 `... has been uploaded to CDN and is available at: https://...` 文本回执、无视觉描述 → **视觉通道不可用**，进入降级流程。
-- **网关能力矩阵**（集中维护，验证后更新；探测机制使其自纠正，矩阵过期也不影响判断）：
-  - 官方 Anthropic API：视觉可用（默认）。
-  - 智谱 GLM 网关：**已验证不可用**（`Read` 仅返回 CDN URL，无视觉内容；主线程与 subagent 同失效）。
-  - MiniMax 网关：**未验证**（待测；若在此网关下，先做单图探测，把结果回写本节）。
-- 探测结果写入当次 `log.md` 条目（视觉通道：可用 / 不可用 / 网关名）。
+- **顺序探测**（用同一张代表性图，优先概念图、含文字最多的图，如"X VS Y"对比图）：
+  1. **`Read` 单图探测**：返回内容含图片视觉信息 → **Read 视觉通道可用**，走正常 subagent 批量分析（§Subagent 批量分析）。
+  2. **视觉 MCP 单图探测**：`Read` 仅返回 `... has been uploaded to CDN and is available at: https://...` 文本回执时，调 `mcp__zai-mcp-server__analyze_image` 并把该图**本地绝对路径**传入 `image_source`：返回真实视觉内容 → **视觉 MCP 通道可用**，按 §视觉理解 MCP 通道 的调用约定读图。
+  3. 两级探测都失败（MCP 未配置 / 调用报错 / 无视觉内容）→ 进入降级流程。
+- **通道能力矩阵**（集中维护，验证后更新；顺序探测机制使其自纠正，矩阵过期也不影响判断）：
+  - 官方 Anthropic API：`Read` 视觉可用（默认）。
+  - 智谱 GLM 网关：`Read` **已验证不可用**（仅返回 CDN URL 回执，无视觉内容；主线程与 subagent 同失效）；`zai-mcp-server` 视觉 MCP **已验证可用**（2026-08-19 本地实测：`analyze_image` 以含中文与空格的本地绝对路径成功返回完整视觉描述与文字转录）。
+  - `4_5v_mcp`（GLM Coding Plan 服务端内置的 image_analysis 通道）：仅支持远程 URL，本地 raw 图片不适用。
+  - MiniMax 网关：**未验证**（待测；若在此网关下，先做顺序探测，把结果回写本节）。
+- 探测结果写入当次 `log.md` 条目（视觉通道：Read 可用 / 视觉 MCP 可用 / 均不可用 + 网关名）。
 
 ### 视觉不可用时的降级流程
 
-视觉不可用**不等于放弃**：image manifest 的建立、文件名/顺序/来源匹配、缺失与重名检测都是**文件系统层**操作，不需要视觉。降级按六步：
+**两条视觉通道（`Read` 与视觉 MCP）都不可用时**才进入降级。降级**不等于放弃**：image manifest 的建立、文件名/顺序/来源匹配、缺失与重名检测都是**文件系统层**操作，不需要视觉。降级按六步：
 
 1. **照常建 image manifest**（§图片密集资料分析）：按文档顺序提取 `![[...]]`、解析短文件名、与 raw 目录对账、检测重名/缺失/越界。manifest 完整性与视觉无关。
-2. **视觉识别字段全部标"视觉未识别"**：`visible_text` / `key_points` / `diagrams_flows_ui` / `insights` 等"需要看图"的字段不填、不猜，统一标注"视觉未识别（当前网关多模态通道不可用）"。
+2. **视觉识别字段全部标"视觉未识别"**：`visible_text` / `key_points` / `diagrams_flows_ui` / `insights` 等"需要看图"的字段不填、不猜，统一标注"视觉未识别（当前网关多模态通道与视觉 MCP 均不可用）"。
 3. **基于已有文字做高维度提炼**：页面已有逐字稿/正文/结构表/金句等文字（典型如飞书 doc 抓取页）时，完全可基于这些文字完成"资料总结/洞见/方法论提炼/最佳实践/金句精选"——它们不依赖图片视觉。
 4. **概念图概念补充须标注来源**：某张概念图（如"平等 VS 公正"对比图）承载的概念若在正文已有文字阐释，可引用正文作补充，但必须明确写"基于正文，非图像识别"。
-5. **不重复空转**：视觉不可用时**不再**派发读图 subagent（派了也是空回执）；把"图片视觉内容待多模态通道恢复后补录精确转写"记为**未决项**，写进 `log.md` 与页面"图片内容解析"节。
+5. **不重复空转**：视觉不可用时**不再**派发读图 subagent、也不再逐张调用视觉 MCP（派了也是空回执或报错）；把"图片视觉内容待多模态通道或视觉 MCP 恢复后补录精确转写"记为**未决项**，写进 `log.md` 与页面"图片内容解析"节。
 6. **不虚构**：绝不依据文件名或上下文猜测图中具体文字、人物、数字、颜色并当作识别结果写入。
 
-> 项目侧若已声明降级路径（如项目 `CLAUDE.md` 的 Claude Code 适配章节），以项目声明为准；本节是通用兜底。
+> 项目侧若已声明视觉通道与降级路径（如项目 `CLAUDE.md` 的 Claude Code 适配章节），以项目声明为准；本节是通用兜底。
 
 ### log.md 追加（大文件安全）
 
@@ -454,7 +479,7 @@ missing_count / broken_count / duplicate_count ==  当次扫描结果
 
 1. 确认来源文件在 `raw/` 对应目录中
 2. **文档预处理**（条件性）：PDF/DOCX/PPTX/XLSX 或大量图片，`scripts/` 就位时用 `.venv` 预处理并建立 manifest；未就位时 PDF 用 Read 的 `pages` 参数直读
-3. **图片密集分析**：图片密集资料按 image manifest 分析；超过 10 张派只读 subagent 并行分析，100–300 张以波次推进（见「Subagent 批量分析」）
+3. **图片密集分析**：图片密集资料按 image manifest 分析；先做视觉通道顺序探测（`Read` → 视觉 MCP，见「运行时与网关适配」），超过 10 张派只读 subagent 并行分析，100–300 张以波次推进（见「Subagent 批量分析」）
 4. **核对 manifest**：阅读/分析时核对覆盖率、顺序、缺失、重名，异常先报告
 5. 与用户讨论关键要点
 6. 在 `wiki/` 对应目录创建摘要页面：
