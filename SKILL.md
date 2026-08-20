@@ -378,11 +378,16 @@ _统计：{indexed_page_count} 个已索引页面 | {wiki_file_count} 个 Wiki �
 
 **机检**：
 - **快校（lint 用，上限预警）**：保留旧 awk 一行版，重命名为 "raw entry count"（仅数 `| [[` 候选行，不去重、不解析），作为漂移预警的快检上限——**不是** `indexed_page_count` 的精确值。
-- **精校（所有写命令用）**：扫 `wiki/**/*.md` 建 `{stem: path}` 字典 → 解析 index 数据行 title → 命中（dedupe by path，记 `indexed_page_count`）/ 未命中（`broken_count`）/ 字典中未被命中（`missing_count`）/ 同 path 重复（`duplicate_count`）；`wiki_file_count` = 字典 size；`registered_domain_count` = schema 注册表数据行数。
+- **精校（所有写命令用）**：**直接运行 Skill 自带固定脚本 [references/index_stat.py](references/index_stat.py)**，不要每次临时新写脚本。脚本实现与本条口径一致：扫 `wiki/**/*.md` 建 `{stem: path}` 字典 → 解析 index 数据行 title → 命中（dedupe by path，记 `indexed_page_count`）/ 未命中或歧义（`broken_count`）/ 字典中未被命中（`missing_count`）/ 同 path 重复（`duplicate_count`）；`wiki_file_count` = 字典 size；`registered_domain_count` = schema 注册表数据行数。脚本额外输出未收录/断链/重复明细、双入口注册表行数对照、**页脚旧值 vs 扫描值漂移报告**（供『统计漂移修正』，`footer_match=true` 即页脚无漂移）；`--json` 为机读模式。脚本不可用时按本条算法降级手工执行。
 
 ```bash
 # 快校 awk 一行版（raw entry count 上限，非精确 indexed_page_count）
 awk '/^\| 页面 \| 摘要 \| 标签 \|/{t=1;next} t==1 && /^\|---/{t=2;next} t==2 && /^\| \[\[/ {c++} t==2 && /^## /{t=0} END{print c+0}' index.md
+
+# 精校固定脚本：<skill_base> 为本 Skill 基目录（Skill 加载时给定），<vault> 为知识库根目录；
+# Python 按 §文档预处理与运行环境 优先级取（项目 .venv 首选）；输出六变量 + 明细 + 页脚漂移对照
+"<python>" "<skill_base>/references/index_stat.py" "<vault>"           # 人类可读
+"<python>" "<skill_base>/references/index_stat.py" "<vault>" --json    # 机读
 ```
 
 **排除项**（不计入页面数）：`.canvas` 文件、图片、附件、`raw/...` 源链接、生成产物、外部链接、schema 文件、`[[页面标题]]` 这类示例占位、`templates/` 与 `assets/` 下的模板。
@@ -416,7 +421,7 @@ missing_count / broken_count / duplicate_count ==  当次扫描结果
 5. 顶部维护块 + 底部统计行 + 索引健康行 **同一次编辑**同步替换（三处日期字面一致）
 6. 若涉及双入口 schema 变更（如新领域），同步编辑 `AGENTS.md` + `CLAUDE.md` + 验 SHA-256
 7. `log.md` 追加一条最终记录（含 `AGENTS.md` / `CLAUDE.md` / `index.md` / frontmatter 四项 + 六变量 + `indexed_page_count` 变化/不变/漂移修正 标识）
-8. 写后自检（快校 awk + 精校；统计行与健康行各只出现 1 次）
+8. 写后自检（快校 awk + 精校固定脚本 [references/index_stat.py](references/index_stat.py)；统计行与健康行各只出现 1 次）
 
 **增量 vs 全量分工**：
 
@@ -447,7 +452,7 @@ missing_count / broken_count / duplicate_count ==  当次扫描结果
 4. **索引健康行**字面合规（正则）：`^> 索引健康：未收录 (\d+) \| Markdown 断链 (\d+) \| 重复条目 (\d+)；.+。$`。
 5. 顶部日期 = 底部统计行日期 = 今天。
 6. **快校**：awk 数候选行数 ≥ `indexed_page_count`（上限校验）。
-7. **精校**：按 §六变量计数口径 扫描得六变量；分别与统计行三数 + 健康行三数核对。
+7. **精校**：运行 [references/index_stat.py](references/index_stat.py)（或按 §六变量计数口径 手工扫描）得六变量；分别与统计行三数 + 健康行三数核对（脚本自带页脚对照与漂移报告）。
 8. 校验统计行与索引健康行**各只出现 1 次**（grep 计数 = 1）。
 9. 校验每个 `## <领域>` 章节下有且仅有一张表，表头/分隔行/数据行格式合规。
 10. 校验同一章节内数据行不重复（按 `[[<页面标题>]]` 去重）。
