@@ -155,7 +155,7 @@ claude mcp add -s user zai-mcp-server --env Z_AI_API_KEY=YOUR_API_KEY -- npx -y 
 |---|---|
 | `/obsidian-llm-wiki ingest <来源>` | 处理 raw/ 中的新资料，集成到 wiki。可能更新 10-15 个相关页面 |
 | `/obsidian-llm-wiki query <问题>` | 使用 wiki 回答问题，综合多个页面并引用来源 |
-| `/obsidian-llm-wiki lint` | 健康检查：矛盾、孤立页面、缺失引用、过期内容；同时校验 `index.md` 顶部维护块、底部三变量统计行与索引健康行的同步契约（六变量精校 + 双入口 schema 字节一致） |
+| `/obsidian-llm-wiki lint` | 健康检查：矛盾、孤立页面、缺失引用、过期内容；同时校验 `index.md` 顶部维护块、底部三变量统计行与索引健康行的同步契约（六变量精校用 Skill 自带 `references/index_stat.py` + 双入口 schema 字节一致） |
 | `/obsidian-llm-wiki migrate` | 一次性迁移：将已有笔记迁移到 LLM Wiki 模式 |
 | `/obsidian-llm-wiki index` | 从当前 wiki 状态**全量重建** `index.md`，按三权威变量 + 三健康变量 + 索引健康行刷新。增量更新由 ingest/optimize/extract-thinking-frameworks/migrate/delete 触发；本命令只做全量重建。详见 SKILL.md `## Index Metadata And Statistics` |
 
