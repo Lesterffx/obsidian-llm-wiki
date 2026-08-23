@@ -122,9 +122,14 @@ claude mcp add -s user zai-mcp-server --env Z_AI_API_KEY=YOUR_API_KEY -- npx -y 
 │   ├── wiki-page.md      # 通用 wiki 页面
 │   ├── book-note.md      # 读书笔记
 │   ├── meeting-note.md   # 会议记录
-│   └── tool-page.md      # 工具页面
+│   ├── tool-page.md      # 工具页面
+│   └── log-active.md     # 新活动日志模板（仅在一次成功分卷轮转后使用）
+├── scripts/
+│   └── log-preflight.ps1 # 固定只读日志预检（2 MiB 阈值 + 跨年判定；Git Bash 经 powershell.exe 调用，中文文本走 -PendingAppendB64）
 └── references/
-    └── schema.md         # AGENTS.md / CLAUDE.md 通用模板（供新项目初始化）
+    ├── schema.md         # AGENTS.md / CLAUDE.md 通用模板（供新项目初始化）
+    ├── index_stat.py     # index.md 六变量精校脚本
+    └── log-rotation.md   # 日志分卷/轮转参考（log status / query / rotate）
 ```
 
 ### Obsidian 仓库结构
@@ -158,6 +163,49 @@ claude mcp add -s user zai-mcp-server --env Z_AI_API_KEY=YOUR_API_KEY -- npx -y 
 | `/obsidian-llm-wiki lint` | 健康检查：矛盾、孤立页面、缺失引用、过期内容；同时校验 `index.md` 顶部维护块、底部三变量统计行与索引健康行的同步契约（六变量精校用 Skill 自带 `references/index_stat.py` + 双入口 schema 字节一致） |
 | `/obsidian-llm-wiki migrate` | 一次性迁移：将已有笔记迁移到 LLM Wiki 模式 |
 | `/obsidian-llm-wiki index` | 从当前 wiki 状态**全量重建** `index.md`，按三权威变量 + 三健康变量 + 索引健康行刷新。增量更新由 ingest/optimize/extract-thinking-frameworks/migrate/delete 触发；本命令只做全量重建。详见 SKILL.md `## Index Metadata And Statistics` |
+| `/obsidian-llm-wiki log <mode>` | 日志工作流：`status`（只读预检详情）/ `query "<条件>"`（活动日志与历史分卷有界检索）/ `rotate now\|year\|size\|auto`（整文件移动式分卷轮转，见 `references/log-rotation.md`）。写入型任务追加 `log.md` 前自动跑 2 MiB 固定预检 |
+
+## 日志预检与分卷（log）
+
+`log.md` 是 append-only 操作日志，随维护持续增长（实测单 vault 可达数百 KB，超过 `Read` 工具上限）。本 Skill 为它提供「固定预检 → 安全追加 → 完整性验证 → 按需分卷」的完整治理机制：
+
+### 追加前固定预检
+
+写入型任务（ingest / optimize / migrate / index / 删除、归档、改名 / 实施修复的 lint）在追加最终日志条目前，构造完整待追加文本（含分隔换行与末尾换行），调用固定只读脚本 `scripts/log-preflight.ps1`（默认阈值 2 MiB；投影超阈值或活动日志跨年 → `rotation_due=true`）：
+
+```bash
+# Git Bash / Claude Code：多行中文文本走 Base64 通道，规避命令行换行/引号/编码风险
+PENDING_B64=$(printf '%s' "$PENDING" | base64 -w0)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<skill>/scripts/log-preflight.ps1" \
+  -VaultRoot "<vault>" -PendingAppendB64 "$PENDING_B64" -ThresholdMiB 2 -Json
+```
+
+原生 PowerShell（Codex / pwsh 会话）可直接传明文参数 `-PendingAppend "<完整待追加文本>"`，两条通道字节数完全等价。脚本只读：不创建/修改/移动/删除文件、不写临时文件、不输出日志正文；不得用临时生成的 Python/PowerShell/bash 代码替代。
+
+### append-only 追加与验证
+
+`rotation_due=false` 时用 heredoc 直追文件末尾（`cat >> log.md <<'LOGEOF'`，不整读大文件），追加前后做完整性验证：长度增量 == 待追加文本 UTF-8 字节数（预检的 `pending_bytes`）、任务标题在有界尾部恰好出现 1 次、文件仍以换行结束、`head -c <原长度> log.md | sha256sum` 前缀哈希 == 追加前整文件 SHA-256（证明既有字节零改动）。任一项不满足即如实报告，不宣称 append-only 成功。
+
+### log 命令
+
+| 命令 | 说明 |
+|---|---|
+| `log status` | 只读运行预检脚本 `-Detailed -Json`，展示当前/投影/阈值字节数与活动日志起始日期 |
+| `log query "<条件>"` | 用 `rg` 检索活动日志与历史分卷，只读取命中处有界上下文 |
+| `log rotate now` | 不问日期与大小，立即轮转 |
+| `log rotate year` | 活动日志首条目早于当前日历年时轮转 |
+| `log rotate size` | 投影字节数达到阈值时轮转 |
+| `log rotate auto` | 年份或大小任一到期即轮转（写入任务的自动预检同此判定） |
+
+### 分卷结构
+
+```text
+log.md                                          # 唯一活动日志
+logs/log-archives.md                            # 分卷清单（首次真实轮转时创建）
+logs/archive/log-YYYY-MM-DD-to-YYYY-MM-DD.md    # 历史分卷，永久只读
+```
+
+轮转采用**整文件移动**（绝不"复制后清空"、剪切条目或改写历史），移动前后校验字节长度、条目数与 SHA-256 完全一致；新活动日志从 `assets/log-active.md` 模板创建，不复制旧条目。`logs/` 不计入 `index.md` 页面统计。**轮转是组织行为，不是备份**——历史分卷永不自动删除、压缩或合并。完整流程见 [references/log-rotation.md](references/log-rotation.md)。
 
 ## SKILL.md 关键内容
 
@@ -168,7 +216,7 @@ SKILL.md 是 Skill 的核心配置，定义了：
 3. **页面规范** —— 每个 wiki 页面必须包含 YAML frontmatter（title、created、updated、domain、tags、sources、status）、inline tags、一句话摘要、正文、相关链接、来源引用
 4. **工作流守则** —— raw/ 只读、覆盖前确认、日志 append-only、从 CLAUDE.md 读取配置而非硬编码
 5. **index.md 同步契约** —— 顶部维护块、底部三变量统计行（`indexed_page_count` / `wiki_file_count` / `registered_domain_count`）与索引健康行（`missing_count` / `broken_count` / `duplicate_count`）的精确格式、六变量计数口径、强制维护遍历（Mandatory Maintenance Pass）与所有写命令的同步刷新策略（`## Index Metadata And Statistics`）
-6. **运行时与网关适配** —— 读图前的视觉通道顺序探测（`Read` 单图 → 视觉理解 MCP 单图；智谱 GLM 等网关下 `Read` 图片可能仅返回 CDN 回执而无视觉内容，此时 `zai-mcp-server` 视觉 MCP 作为兜底通道，配置见上文「视觉 MCP 配置」）、两条通道都不可用时的 6 步降级（manifest 照建、视觉字段标"视觉未识别"、基于已有文字提炼、不虚构）、以及大 `log.md` 的 EOF 直追（bash heredoc / `Add-Content -LiteralPath`，不为追加而整读）。详见 SKILL.md `## 运行时与网关适配`
+6. **运行时与网关适配** —— 读图前的视觉通道顺序探测（`Read` 单图 → 视觉理解 MCP 单图；智谱 GLM 等网关下 `Read` 图片可能仅返回 CDN 回执而无视觉内容，此时 `zai-mcp-server` 视觉 MCP 作为兜底通道，配置见上文「视觉 MCP 配置」）、两条通道都不可用时的 6 步降级（manifest 照建、视觉字段标"视觉未识别"、基于已有文字提炼、不虚构）、以及大 `log.md` 的追加前固定预检（`scripts/log-preflight.ps1`，2 MiB 阈值与跨年判定）与 EOF 直追（bash heredoc / `Add-Content -LiteralPath`，不为追加而整读；轮转见 `references/log-rotation.md`）。详见 SKILL.md `## 运行时与网关适配`
 
 ## 快速开始
 

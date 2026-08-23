@@ -1,6 +1,6 @@
 ---
 name: obsidian-llm-wiki
-description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wiki 双层 + AGENTS.md/CLAUDE.md schema + index.md + log.md）。支持 ingest、query、optimize、extract-thinking-frameworks、lint、index、migrate、delete；强制维护遍历（Mandatory Maintenance Pass）自动检查并修复 frontmatter/index/schema 结构缺口；index.md 统一三权威变量（indexed_page_count/wiki_file_count/registered_domain_count）+ 三健康变量（missing_count/broken_count/duplicate_count）+ 索引健康行；双入口 schema 字节一致并验 SHA-256。支持用 Claude Code Agent 工具派发只读 subagent 以波次并行分析图片密集资料（截图课程、PPT、扫描件，支持 100–300 张多 Agents 并行读图），用项目 .venv 做 PDF/DOCX/PPTX/XLSX 预处理与 image manifest。触发词：wiki、知识库维护、ingest、preprocess、batch-analyze images、subagent、波次并行、manifest、venv、optimize、lint、index、索引健康、六变量统计、双入口 schema、补录、漂移修正、知识管理、Obsidian 笔记整理、读图降级、视觉通道探测、视觉 MCP、zai-mcp-server、GLM-4.6V、GLM/MiniMax 网关、log.md 大文件追加。"
+description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wiki 双层 + AGENTS.md/CLAUDE.md schema + index.md + log.md）。支持 ingest、query、optimize、extract-thinking-frameworks、lint、index、migrate、delete；强制维护遍历（Mandatory Maintenance Pass）自动检查并修复 frontmatter/index/schema 结构缺口；index.md 统一三权威变量（indexed_page_count/wiki_file_count/registered_domain_count）+ 三健康变量（missing_count/broken_count/duplicate_count）+ 索引健康行；双入口 schema 字节一致并验 SHA-256。支持用 Claude Code Agent 工具派发只读 subagent 以波次并行分析图片密集资料（截图课程、PPT、扫描件，支持 100–300 张多 Agents 并行读图），用项目 .venv 做 PDF/DOCX/PPTX/XLSX 预处理与 image manifest。触发词：wiki、知识库维护、ingest、preprocess、batch-analyze images、subagent、波次并行、manifest、venv、optimize、lint、index、索引健康、六变量统计、双入口 schema、补录、漂移修正、知识管理、Obsidian 笔记整理、读图降级、视觉通道探测、视觉 MCP、zai-mcp-server、GLM-4.6V、GLM/MiniMax 网关、log.md 大文件追加、固定只读日志预检（log-preflight.ps1，2 MiB 阈值与跨年判定）、日志分卷轮转、log status、log query、log rotate。"
 ---
 
 # Obsidian LLM Wiki Skill
@@ -82,6 +82,7 @@ description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wi
 - `assets/book-note.md` — 读书笔记
 - `assets/meeting-note.md` — 会议记录
 - `assets/tool-page.md` — 工具页面
+- `assets/log-active.md` — 新活动日志模板（仅在一次成功分卷轮转后创建新 `log.md` 时使用，见「log.md 追加（大文件安全）」与 [references/log-rotation.md](references/log-rotation.md)）
 
 **优先级**：如果项目根目录有 `templates/` 目录，优先使用项目模板；否则使用 Skill 自带的 `assets/` 模板。模板中的 `{{domain}}`、`{{date}}`、`{{title}}` 等占位符由主 agent 根据项目 schema 填写。
 
@@ -250,7 +251,31 @@ PDF/DOCX/PPTX/XLSX 等文档的确定性预处理，与只读 subagent 视觉分
 
 ### log.md 追加（大文件安全）
 
-`log.md` 随维护累积会变得很大（实测单个 vault 的 `log.md` 可达数百 KB）。`Read` 工具有大小上限（约 256KB），大 `log.md` **整文件读不了**，也就无法用"读末尾 → Edit 锚点"的方式追加。追加流程：
+`log.md` 随维护累积会变得很大（实测单个 vault 的 `log.md` 可达数百 KB）。`Read` 工具有大小上限（约 256KB），大 `log.md` **整文件读不了**，也就无法用"读末尾 → Edit 锚点"的方式追加。
+
+#### 第 0 步：追加前固定预检（写入型任务必跑）
+
+适用：`ingest` / `optimize` / `migrate` / `index` / 删除、归档、改名 / 实施修复的 lint / 其他产生了文件变更并要写最终日志的工作流。`query`、只读 lint/audit、`log status`、`log query` 与无文件变化的任务**不跑预检、不轮转**。
+
+先构造完整待追加文本（含前置分隔换行与末尾换行；一个任务只对应一条最终条目），再调用本 Skill 自带的固定只读脚本 `scripts/log-preflight.ps1`（默认阈值 2 MiB；投影超阈值或活动日志跨年即 `rotation_due=true`）：
+
+- Git Bash / Claude Code——多行中文文本必须走 Base64 通道，规避命令行换行/引号/编码风险：
+
+  ```bash
+  PENDING_B64=$(printf '%s' "$PENDING" | base64 -w0)
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<skill_base>/scripts/log-preflight.ps1" \
+    -VaultRoot "<vault_root>" -PendingAppendB64 "$PENDING_B64" -ThresholdMiB 2 -Json
+  ```
+
+- 原生 PowerShell（Codex 或 pwsh 会话）——可直接传明文参数：
+
+  ```powershell
+  & "<skill_base>\scripts\log-preflight.ps1" -VaultRoot "<vault_root>" -PendingAppend "<完整待追加文本>" -ThresholdMiB 2 -Json
+  ```
+
+`rotation_due=false` → 按下方方式追加并做完整性验证。`rotation_due=true` → 读 [references/log-rotation.md](references/log-rotation.md) 执行轮转，轮转完成后把本任务条目追加到新的 `log.md`。预检脚本**只读**：不创建/修改/移动/删除文件、不写临时文件、不输出日志正文；**不得**用临时生成的 Python/PowerShell/bash 代码替代，也不为常规检查创建状态或缓存文件。
+
+#### 追加方式（append-only，无需整读）
 
 - **首选：直接追加到文件末尾（append-only，无需锚点）**。`log.md` 是 append-only，新条目永远加在 EOF，不需要读旧内容：
   - bash（Git Bash / WSL）——用引号封闭定界符的 heredoc，防变量展开，内部反引号/代码栏安全：
@@ -274,6 +299,19 @@ PDF/DOCX/PPTX/XLSX 等文档的确定性预处理，与只读 subagent 视觉分
 - **次选：Edit + tail 锚点**（文件仍可被 `Read` 时）：`tail -n 5` 取末尾几行作 Edit 的 `old_string`（取含独特上下文的行保证全文唯一，必要时多取几行），再 Edit 追加。
 - **禁止**：为追加条目而 `Read` 整个大 `log.md`（触发大小上限失败并浪费上下文）。
 - **抽查**：追加后用 `tail -n 3` 或 `grep` 确认新条目落位正确即可，不必整读。
+
+#### 追加前后完整性验证（低 Token）
+
+追加前：`wc -c` + `sha256sum` 记录原字节长度与整文件哈希；内部用 `tail -n 80`（必要时至多 200 行）核对精确任务标题是否已存在（已存在则不重复追加），只把末尾唯一 2–4 行与判定结果带回上下文，**不回传整个尾部**。
+
+追加后：
+
+- 长度增量 == 待追加文本的 UTF-8 字节数（即预检返回的 `pending_bytes`）；
+- `tail -n 80` 内精确任务标题恰好出现 1 次，且新条目是最后一条；
+- `tail -c 1` 确认文件仍以换行结束；
+- `head -c <原字节长度> "<log.md>" | sha256sum` == 追加前整文件 SHA-256，证明既有字节未被改动。
+
+任一项不满足：如实报告失败，不宣称 append-only 成功。同一任务只追加一条最终记录，不为中间步骤重复写日志。
 
 > 说明：用户直觉里的"用 tail 做新增"映射为"shell 文件末操作"——`tail` 用于取锚点/抽查，实际写入用 `>>` / `Add-Content`（tail 本身只读不写）。
 
@@ -572,6 +610,15 @@ missing_count / broken_count / duplicate_count ==  当次扫描结果
 
 删除 wiki 页面（**不动 raw/**）。删除前：确认无其他页面的入链，或有则提示用户处理断链。删除动作：用 `Remove-Item -LiteralPath "<绝对路径>"`，禁通配符/`-Recurse`/批量/目录删除。删除后**运行强制维护遍历**：在对应 `## <领域>` 章节删除该行；检查相关链接/反向链接/index 是否需要更新；`indexed_page_count` 变化则重算六变量；顶部维护块摘要 = `同步索引：移除 1 个页面（<页面名>）`；追加 `log.md` 条目 `## [YYYY-MM-DD] delete | <标题>`，日期与 index 顶部/底部字面一致。
 
+### /obsidian-llm-wiki log \<mode\>
+
+日志工作流：`status` / `query "<条件>"` / `rotate now|year|size|auto`；同时是所有写入型任务追加最终日志条目的路由（预检与追加验证见「log.md 追加（大文件安全）」）。
+
+1. `log status`：只读运行 `scripts/log-preflight.ps1 -Detailed -Json`（Git Bash 经 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File` 调用），展示当前字节数、投影、阈值与活动日志起始日期，绝不轮转。
+2. `log query "<条件>"`：用 `rg` 检索活动 `log.md` 与 `logs/archive/*.md`，只读取命中处有界上下文（如 `rg -n -C 2 "<条件>"`）。
+3. `log rotate now` / `year` / `size` / `auto`：按 [references/log-rotation.md](references/log-rotation.md) 的十步流程执行整文件移动轮转。
+4. 永不把轮转当备份；永不改写历史分卷；`logs/` 永不计入 `index.md` 页面统计。
+
 ## 排版规范
 
 所有 wiki 页面应遵循以下排版标准。
@@ -638,4 +685,5 @@ missing_count / broken_count / duplicate_count ==  当次扫描结果
 - 图片重名/缺失/无法定位一律先报告，不猜测
 - **不虚构**来源、数据、引用或验证结果
 - 中文路径与带空格路径用 `-LiteralPath` 或显式参数，不走 PowerShell 管道；不修改 PATH、不重装 Python、不调用户目录 Python
-- `log.md` 条目至少含：日期与任务名 / 增改删文件 / 是否检查 `AGENTS.md` + `CLAUDE.md` / 是否检查 frontmatter + 图片嵌入 + `index.md` + 统计 / 关键验证结果与未决项；同一任务只追加一条最终记录
+- `log.md` 条目至少含：日期与任务名 / 增改删文件 / 是否检查 `AGENTS.md` + `CLAUDE.md` / 是否检查 frontmatter + 图片嵌入 + `index.md` + 统计 / 关键验证结果与未决项；同一任务只追加一条最终记录；新条目用标准紧凑格式（必需：范围、变更、维护、验证；按需：资料、未决，见 [references/log-rotation.md](references/log-rotation.md)）
+- **写入型任务追加 `log.md` 前必跑固定只读预检** `scripts/log-preflight.ps1`（见「log.md 追加（大文件安全）」）；`logs/` 不计入 `index.md` 页面统计；历史分卷（`logs/archive/`）永久只读，不删除、不改写、不继续追加
