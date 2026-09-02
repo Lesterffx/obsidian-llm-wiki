@@ -1,6 +1,6 @@
 ---
 name: obsidian-llm-wiki
-description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wiki 双层 + AGENTS.md/CLAUDE.md schema + index.md + log.md）。支持 ingest、query、optimize、extract-thinking-frameworks、lint、index、migrate、delete；强制维护遍历（Mandatory Maintenance Pass）自动检查并修复 frontmatter/index/schema 结构缺口；index.md 统一三权威变量（indexed_page_count/wiki_file_count/registered_domain_count）+ 三健康变量（missing_count/broken_count/duplicate_count）+ 索引健康行；双入口 schema 字节一致并验 SHA-256。支持用 Claude Code Agent 工具派发只读 subagent 以波次并行分析图片密集资料（截图课程、PPT、扫描件，支持 100–300 张多 Agents 并行读图），用项目 .venv 做 PDF/DOCX/PPTX/XLSX 预处理与 image manifest。触发词：wiki、知识库维护、ingest、preprocess、batch-analyze images、subagent、波次并行、manifest、venv、optimize、lint、index、索引健康、六变量统计、双入口 schema、补录、漂移修正、知识管理、Obsidian 笔记整理、读图降级、视觉通道探测、视觉 MCP、zai-mcp-server、GLM-4.6V、GLM/MiniMax 网关、log.md 大文件追加、固定只读日志预检（log-preflight.ps1，2 MiB 阈值与跨年判定）、日志分卷轮转、log status、log query、log rotate。"
+description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wiki 双层 + AGENTS.md/CLAUDE.md schema + index.md + log.md）。支持 ingest、query、optimize、extract-thinking-frameworks、lint、index、migrate、delete；强制维护遍历（Mandatory Maintenance Pass）自动检查并修复 frontmatter/index/schema 结构缺口；index.md 统一三权威变量（indexed_page_count/wiki_file_count/registered_domain_count）+ 三健康变量（missing_count/broken_count/duplicate_count）+ 索引健康行；双入口 schema 字节一致并验 SHA-256。支持用 Claude Code Agent 工具派发只读 subagent 以波次并行分析图片密集资料（截图课程、PPT、扫描件，支持 100–300 张多 Agents 并行读图），用项目 .venv 做 PDF/DOCX/PPTX/XLSX 预处理与 image manifest。触发词：wiki、知识库维护、ingest、preprocess、batch-analyze images、subagent、波次并行、manifest、venv、optimize、lint、index、索引健康、六变量统计、双入口 schema、补录、漂移修正、知识管理、Obsidian 笔记整理、读图降级、视觉通道探测、视觉 MCP、zai-mcp-server、GLM-4.6V、GLM/MiniMax 网关、log.md 大文件追加、固定只读日志预检（log-preflight.ps1，2 MiB 阈值与跨年判定）、日志分卷轮转、log status、log query、log rotate、固定 PDF 预处理（preprocess_pdf.py）、任务临时目录清理（tmp/obsidian-llm-wiki、created_files.json、temp-cleanup）。"
 ---
 
 # Obsidian LLM Wiki Skill
@@ -54,7 +54,7 @@ description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wi
   Remove-Item -LiteralPath "<绝对路径>"
   ```
 
-  单文件单命令；中文路径与带空格路径必须用 `-LiteralPath` 或被正确引用的显式参数。
+  单文件单命令；中文路径与带空格路径必须用 `-LiteralPath` 或被正确引用的显式参数。唯一目录删除例外：Skill 任务目录（`<vault-root>/tmp/obsidian-llm-wiki/<task-id>/`）内已清空、已确认为空的目录，按 [references/temp-cleanup.md](references/temp-cleanup.md) 逐个用非递归 `Remove-Item -LiteralPath` 删除。
 - **双入口 schema 字节一致性**：声明双入口契约时，`AGENTS.md` 与 `CLAUDE.md` 必须字节相同；结构变更**同步编辑两文件并验证 SHA-256**；不得泄露密钥或本地敏感配置。
 - **subagent 只读红线**：派出的 subagent 绝不修改 `raw/`、`wiki/`、`index.md`、`log.md`、schema 文件或 `.claude/` 下任何文件。
 - 不确定时**提问，不猜测**；图片重名/缺失/无法唯一定位一律先报告。
@@ -63,6 +63,7 @@ description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wi
 - 图片嵌入用短文件名 `![[文件名.png]]`，不写完整路径（Obsidian 全库自动解析）。
 - **图片视觉未识别时必须如实标注**（视觉未识别 / 基于正文非图像识别），绝不依文件名或上下文虚构图中文字、人物、数字、颜色。
 - **`log.md` 大文件（超 `Read` 上限）追加用 EOF 直追**（bash heredoc / `Add-Content -LiteralPath`），不为追加而整读。
+- **任务临时文件自动清理**：杂项中转/对账临时文件只放系统临时目录（Git Bash `/tmp`，即 Windows `%TEMP%`，如 `C:/Users/<用户名>/AppData/Local/Temp/`）；Skill 管理的任务产物（如 PDF 预处理中间产物）统一放任务目录 `<vault-root>/tmp/obsidian-llm-wiki/<task-id>/`；两者均禁止写入 `raw/`、`wiki/` 或 vault 其他位置。优先用命令内变量、命令替换与进程替换（如 `diff <(...) <(...)`）内联完成，不落盘；确需落盘时，任务收尾按 [references/temp-cleanup.md](references/temp-cleanup.md) 自动清理，无需用户确认（若运行时配置了命令守卫，tmp/temp 类目录下的单文件 `rm` 与单路径非递归删除可配置为免审批放行——后者是空任务目录窄例外的唯一删除方式；目录级与递归删除仍应直接拦截）；系统临时目录与任务目录均不得残留任务临时文件。
 
 ## 前置条件（初始化）
 
@@ -127,6 +128,18 @@ PDF/DOCX/PPTX/XLSX 等文档的确定性预处理，与只读 subagent 视觉分
 & ".\.venv\Scripts\python.exe" ".\scripts\<script>.py" "<input-path>" "<output-path>"
 ```
 
+**PDF 固定脚本（强制，禁止临时另写）**：处理 PDF 前必须先读 [references/pdf-preprocessing.md](references/pdf-preprocessing.md)，再运行 Skill 自带 `scripts/preprocess_pdf.py`（pypdf 优先中文文本、PyMuPDF 负责页数/图片/整页渲染，逐页乱码质量判定，固定产出 pages/manifest/`created_files.json`）。Git Bash 调用：
+
+```bash
+PYTHONUTF8=1 PYTHONIOENCODING=utf-8 \
+  "<vault-root>/.venv/Scripts/python.exe" \
+  "<skill_base>/scripts/preprocess_pdf.py" \
+  --input "<PDF 绝对路径>" --vault-root "<知识库绝对路径>" --task-id "<时间戳-安全任务标识>"
+```
+
+- 产物只进任务目录 `<vault-root>/tmp/obsidian-llm-wiki/<task-id>/`；`task-id` 运行前必须不存在（脚本拒绝覆盖）；`requires_visual` 页按「运行时与网关适配」三级视觉通道读图。
+- **清理触发**：成功与可控失败的任务，都要在构建最终日志与最终回复前按 [references/temp-cleanup.md](references/temp-cleanup.md) 清理：先逐个单文件删除登记产物，再按 `created_directories` 最深优先删除空任务目录（窄例外单路径非递归 `Remove-Item -LiteralPath`），工作容器空则条件删除；最终汇报生成数/删除数/文件残留数/目录残留数/任务根状态/容器状态。
+
 **`.venv` 职责**（确定性、可重复）：
 - 从 DOCX / PDF / PPTX / XLSX 提取文本与元数据
 - 提取或枚举内嵌图片、slide/page 顺序、文件名、尺寸、源文档引用
@@ -139,7 +152,7 @@ PDF/DOCX/PPTX/XLSX 等文档的确定性预处理，与只读 subagent 视觉分
 - 只读 subagent 负责 OCR-like 图片阅读、截图理解、图表/UI 细节、概念洞见合成
 - **不默认假设** Tesseract、OpenCV、PaddleOCR、RapidOCR 等传统 OCR 引擎可用，除非用户明确安装或要求
 
-> 项目 `scripts/` 是否就位、依赖是否安装，以项目 schema（CLAUDE.md 的「运行环境」章节）为准；未就位时 PDF 用 Read 的 `pages` 参数直读降级。
+> PDF 依赖（`pypdf`、`PyMuPDF`）以项目 `.venv` 为准；缺依赖且用户未授权安装时，PDF 用 Read 的 `pages` 参数直读降级。DOCX/PPTX/XLSX 项目脚本是否就位、依赖是否安装，仍以项目 schema（CLAUDE.md 的「运行环境」章节）为准。
 
 ## 图片密集资料分析（Image-Heavy Source Analysis）
 
@@ -266,6 +279,8 @@ PDF/DOCX/PPTX/XLSX 等文档的确定性预处理，与只读 subagent 视觉分
   powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<skill_base>/scripts/log-preflight.ps1" \
     -VaultRoot "<vault_root>" -PendingAppendB64 "$PENDING_B64" -ThresholdMiB 2 -Json
   ```
+
+  `PENDING` 与 `PENDING_B64` 全程用命令内变量构造（heredoc / 命令替换），**禁止为预检或追加在 vault 或项目目录落盘中转文件**；对账类中间产物（嵌入清单、文件清单对比等）优先用进程替换内联（如 `diff <(cmd1) <(cmd2)`）；确需临时文件时放系统临时目录并在任务收尾自动删除（见「安全规则」的任务临时文件自动清理条目）。
 
 - 原生 PowerShell（Codex 或 pwsh 会话）——可直接传明文参数：
 
@@ -521,7 +536,7 @@ missing_count / broken_count / duplicate_count ==  当次扫描结果
 处理 `raw/` 中的新来源，集成到 wiki。
 
 1. 确认来源文件在 `raw/` 对应目录中
-2. **文档预处理**（条件性）：PDF/DOCX/PPTX/XLSX 或大量图片，`scripts/` 就位时用 `.venv` 预处理并建立 manifest；未就位时 PDF 用 Read 的 `pages` 参数直读
+2. **文档预处理**（条件性）：PDF 必须走 Skill 固定脚本 `scripts/preprocess_pdf.py`（先读 references/pdf-preprocessing.md，见「文档预处理运行时」），收尾按 temp-cleanup.md 清理任务目录；DOCX/PPTX/XLSX 或大量图片在 `scripts/` 就位时用 `.venv` 预处理并建立 manifest；PDF 依赖未就位时用 Read 的 `pages` 参数直读
 3. **图片密集分析**：图片密集资料按 image manifest 分析；先做视觉通道顺序探测（`Read` → 视觉 MCP，见「运行时与网关适配」），超过 10 张派只读 subagent 并行分析，100–300 张以波次推进（见「Subagent 批量分析」）
 4. **核对 manifest**：阅读/分析时核对覆盖率、顺序、缺失、重名，异常先报告
 5. 与用户讨论关键要点
@@ -608,7 +623,7 @@ missing_count / broken_count / duplicate_count ==  当次扫描结果
 
 ### /obsidian-llm-wiki delete \<page\>
 
-删除 wiki 页面（**不动 raw/**）。删除前：确认无其他页面的入链，或有则提示用户处理断链。删除动作：用 `Remove-Item -LiteralPath "<绝对路径>"`，禁通配符/`-Recurse`/批量/目录删除。删除后**运行强制维护遍历**：在对应 `## <领域>` 章节删除该行；检查相关链接/反向链接/index 是否需要更新；`indexed_page_count` 变化则重算六变量；顶部维护块摘要 = `同步索引：移除 1 个页面（<页面名>）`；追加 `log.md` 条目 `## [YYYY-MM-DD] delete | <标题>`，日期与 index 顶部/底部字面一致。
+删除 wiki 页面（**不动 raw/**）。删除前：确认无其他页面的入链，或有则提示用户处理断链。删除动作：用 `Remove-Item -LiteralPath "<绝对路径>"`，禁通配符/`-Recurse`/批量/目录删除（唯一例外：Skill 任务临时目录的空目录窄例外，见 [references/temp-cleanup.md](references/temp-cleanup.md)）。删除后**运行强制维护遍历**：在对应 `## <领域>` 章节删除该行；检查相关链接/反向链接/index 是否需要更新；`indexed_page_count` 变化则重算六变量；顶部维护块摘要 = `同步索引：移除 1 个页面（<页面名>）`；追加 `log.md` 条目 `## [YYYY-MM-DD] delete | <标题>`，日期与 index 顶部/底部字面一致。
 
 ### /obsidian-llm-wiki log \<mode\>
 

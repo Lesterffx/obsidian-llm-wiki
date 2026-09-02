@@ -1,3 +1,5 @@
 # 本地编辑器 / Agent 配置,含本地绝对路径与个人偏好,不属可分发内容
 .claude/
 .vscode/
+# Python 字节码缓存
+__pycache__/
