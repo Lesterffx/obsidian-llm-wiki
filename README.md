@@ -109,6 +109,7 @@ claude mcp add -s user zai-mcp-server --env Z_AI_API_KEY=YOUR_API_KEY -- npx -y 
 - 双入口 schema 字节一致：结构变更同步两文件并验 SHA-256
 - 不虚构来源、数据、引用或验证结果
 - 中文路径与带空格路径用 `-LiteralPath` 或显式参数，不走 PowerShell 管道
+- 任务临时产物统一放 `<vault>/tmp/obsidian-llm-wiki/<task-id>/`，收尾按 `created_files.json` 逐文件清理（见 `references/temp-cleanup.md`）
 
 ## 文件结构
 
@@ -125,11 +126,14 @@ claude mcp add -s user zai-mcp-server --env Z_AI_API_KEY=YOUR_API_KEY -- npx -y 
 │   ├── tool-page.md      # 工具页面
 │   └── log-active.md     # 新活动日志模板（仅在一次成功分卷轮转后使用）
 ├── scripts/
-│   └── log-preflight.ps1 # 固定只读日志预检（2 MiB 阈值 + 跨年判定；Git Bash 经 powershell.exe 调用，中文文本走 -PendingAppendB64）
+│   ├── log-preflight.ps1 # 固定只读日志预检（2 MiB 阈值 + 跨年判定；Git Bash 经 powershell.exe 调用，中文文本走 -PendingAppendB64）
+│   └── preprocess_pdf.py # 固定 PDF 预处理（pypdf/PyMuPDF 双提取器 + 逐页乱码质量判定 + created_files.json 清理清单）
 └── references/
-    ├── schema.md         # AGENTS.md / CLAUDE.md 通用模板（供新项目初始化）
-    ├── index_stat.py     # index.md 六变量精校脚本
-    └── log-rotation.md   # 日志分卷/轮转参考（log status / query / rotate）
+    ├── schema.md              # AGENTS.md / CLAUDE.md 通用模板（供新项目初始化）
+    ├── index_stat.py          # index.md 六变量精校脚本
+    ├── log-rotation.md        # 日志分卷/轮转参考（log status / query / rotate）
+    ├── pdf-preprocessing.md   # PDF 预处理协议（固定入口、质量判定、视觉降级）
+    └── temp-cleanup.md        # 任务临时目录清理协议（created_files.json 驱动）
 ```
 
 ### Obsidian 仓库结构
@@ -207,6 +211,33 @@ logs/archive/log-YYYY-MM-DD-to-YYYY-MM-DD.md    # 历史分卷，永久只读
 
 轮转采用**整文件移动**（绝不"复制后清空"、剪切条目或改写历史），移动前后校验字节长度、条目数与 SHA-256 完全一致；新活动日志从 `assets/log-active.md` 模板创建，不复制旧条目。`logs/` 不计入 `index.md` 页面统计。**轮转是组织行为，不是备份**——历史分卷永不自动删除、压缩或合并。完整流程见 [references/log-rotation.md](references/log-rotation.md)。
 
+## PDF 固定预处理与任务临时目录清理
+
+`ingest` 处理 PDF 不再临时编写解析脚本，统一走 Skill 自带固定脚本 `scripts/preprocess_pdf.py`（依赖项目 `.venv` 的 `pypdf` 与 `PyMuPDF`）：
+
+```bash
+PYTHONUTF8=1 PYTHONIOENCODING=utf-8 \
+  "<vault>/.venv/Scripts/python.exe" \
+  "<skill>/scripts/preprocess_pdf.py" \
+  --input "<PDF 绝对路径>" --vault-root "<vault>" --task-id "<时间戳-安全任务标识>"
+```
+
+- **双提取器逐页质量判定**：pypdf 优先负责中文文本与 PDF 元数据，PyMuPDF 负责页数、嵌入图片对象与整页渲染；逐页比较替换字符、控制字符与连续乱码比例。pypdf 不合格且 PyMuPDF 更优时逐页降级；两者都不合格时自动渲染整页 PNG 并标记「需视觉读取」——绝不把乱码当正文写入 wiki。
+- **固定产物**：`metadata.json`、`pages.json`、`page_text.md`、`image_manifest.csv`、`unique_image_manifest.csv`、`images/`、`rendered_pages/`，全部落在任务目录 `<vault>/tmp/obsidian-llm-wiki/<task-id>/`。任务目录运行前必须不存在，脚本拒绝覆盖；`task-id` 仅允许字母、数字、点、下划线、连字符。
+- **只读边界**：脚本只读取输入 PDF，不写 `raw/`、`wiki/`、`index.md`、`log.md` 或 Schema。
+- 完整协议见 [references/pdf-preprocessing.md](references/pdf-preprocessing.md)。
+
+### created_files.json 驱动的收尾清理
+
+脚本在 `created_files.json` 中登记本次创建的每个文件、目录（最深优先排序）、工作容器 `tmp/obsidian-llm-wiki/`（条件删除）与受保护的 `<vault>/tmp/`（永不删除）。任务收尾（成功与可控失败都一样）按 [references/temp-cleanup.md](references/temp-cleanup.md) 执行：
+
+1. 逐个单文件删除登记产物——每条命令只碰一个明确路径，最后删除 `created_files.json` 自身；
+2. 任务根目录文件数归零后，按最深优先逐个删除已确认为空的子目录与任务目录（窄例外：单路径非递归 `Remove-Item -LiteralPath`）；
+3. 工作容器为空时才删除容器本身；`<vault>/tmp/` 始终保留，`tmp/pdfs/` 等其他工作流目录不碰；
+4. 最终汇报生成数 / 删除数 / 文件残留数 / 目录残留数 / 任务根状态 / 容器状态——残留不为 0 不得声称清理完成。
+
+配置了命令守卫的运行时（如 ZCode 的 PreToolUse hook），建议把「tmp/temp 类目录内的单文件 `rm` 与单路径非递归 `Remove-Item`」配置为免审批放行，递归与目录级删除命令保持直接拦截——本清理协议正是按这一形态设计，实测全流程零弹窗。
+
 ## SKILL.md 关键内容
 
 SKILL.md 是 Skill 的核心配置，定义了：
@@ -217,6 +248,7 @@ SKILL.md 是 Skill 的核心配置，定义了：
 4. **工作流守则** —— raw/ 只读、覆盖前确认、日志 append-only、从 CLAUDE.md 读取配置而非硬编码
 5. **index.md 同步契约** —— 顶部维护块、底部三变量统计行（`indexed_page_count` / `wiki_file_count` / `registered_domain_count`）与索引健康行（`missing_count` / `broken_count` / `duplicate_count`）的精确格式、六变量计数口径、强制维护遍历（Mandatory Maintenance Pass）与所有写命令的同步刷新策略（`## Index Metadata And Statistics`）
 6. **运行时与网关适配** —— 读图前的视觉通道顺序探测（`Read` 单图 → 视觉理解 MCP 单图；智谱 GLM 等网关下 `Read` 图片可能仅返回 CDN 回执而无视觉内容，此时 `zai-mcp-server` 视觉 MCP 作为兜底通道，配置见上文「视觉 MCP 配置」）、两条通道都不可用时的 6 步降级（manifest 照建、视觉字段标"视觉未识别"、基于已有文字提炼、不虚构）、以及大 `log.md` 的追加前固定预检（`scripts/log-preflight.ps1`，2 MiB 阈值与跨年判定）与 EOF 直追（bash heredoc / `Add-Content -LiteralPath`，不为追加而整读；轮转见 `references/log-rotation.md`）。详见 SKILL.md `## 运行时与网关适配`
+7. **PDF 固定预处理与任务临时目录清理** —— PDF 必须走 Skill 自带 `scripts/preprocess_pdf.py`（先读 `references/pdf-preprocessing.md`，禁止临时另写脚本），产物只进 `<vault>/tmp/obsidian-llm-wiki/<task-id>/`；任务收尾按 `references/temp-cleanup.md` 的 `created_files.json` 清单逐文件删除、最深优先删除空任务目录、容器空则条件删除，并汇报六项指标。详见 SKILL.md「文档预处理运行时」与上文「PDF 固定预处理与任务临时目录清理」
 
 ## 快速开始
 
