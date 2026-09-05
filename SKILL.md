@@ -172,7 +172,13 @@ PYTHONUTF8=1 PYTHONIOENCODING=utf-8 \
 
 当用户明确要求 subagent / 并行 agent / 批量图片分析时，主 agent 用 Claude Code 的 **`Agent`（Task）工具**派发只读 subagent。
 
-> 术语映射：Codex 侧现行接口是 `collaboration.spawn_agent(agent_type: "default")`；在 Claude Code 对应 `Agent` 工具调用，`subagent_type` 用项目自定义只读 subagent（如 `image-reader`）或内置 **`Explore`** 类型（同样只读）。两侧职责划分一致。
+> 术语映射：Codex 侧现行接口是 `collaboration.spawn_agent(agent_type: "default")`；在 Claude Code 对应 `Agent` 工具调用，`subagent_type` 用项目自定义只读 subagent（如 `image-reader`）或内置 **`Explore`** 类型（同样只读）。**ZCode 运行时不加载项目 `.claude/agents/`**，可用类型为 general-purpose / Explore / judge，读图批次直接用 **Explore**（只读，且其 `Read` 与主线程一样可直接读图）。两侧职责划分一致。
+
+**派发前类型解析（fallback 规则）**：
+
+1. 优先项目自定义只读类型（如 `image-reader`，其角色定义、只读红线与视觉 MCP 工具授权由 agent 定义自动注入）。
+2. 项目自定义类型不可用，或派发返回 `Agent type '...' not found`（错误消息会列出该运行时实际可用的类型清单）→ **不重试原类型**，同一批次立即改用内置 `Explore` 重发。
+3. **契约自带要求**：用 `Explore` 等未注入项目 agent 定义的类型时，调用 prompt 必须完整自带 ①只读红线（只允许 `ls`/`Read` 读图，不编辑任何文件）②九字段输出契约 ③批次四件套——这些内容不会自动注入，漏写会导致输出格式不齐或红线缺失。
 
 **主 agent 独占四件事**：manifest 建立、分批/分波、最终合成、所有写文件。subagent 只读图返回分析。
 
@@ -194,12 +200,27 @@ PYTHONUTF8=1 PYTHONIOENCODING=utf-8 \
 **派发约定**：
 - 给每个 subagent 一段 **bounded manifest slice**：绝对图片路径 + 稳定 manifest index（Claude Code 侧通过 Agent 工具 prompt 传入；Codex 侧用 `items` 的 `local_image` 条目）。
 - **同一张图不派给多个 subagent**，除非在校验某个不确定读数。
-- subagent 调用 prompt 模板：
+- subagent 调用 prompt 模板——项目自定义类型（如 `image-reader`）契约已注入，可用简模板：
 
   ```
   分析这批图片用于 Obsidian LLM Wiki 更新。只读，不编辑文件。
   每张图按九字段输出契约返回一个 section，然后给批次总结。
   严格保留 manifest index 与文件名。
+  ```
+
+  `Explore` 等契约未注入的类型必须用**完整模板**（按序包含，全部为必备段）：
+
+  ```
+  ① 角色与红线：只读图片分析助手，只允许 ls/Read 读图，不编辑任何文件。
+  ② 目录：raw 图片目录的绝对路径。
+  ③ 本批 manifest slice：manifest index 范围 + 确切文件名规则（默认扩展名 + 例外清单），
+     并要求 subagent 先 ls 核对文件名再逐张 Read。
+  ④ 资料背景：来源与预期内容一段（帮助 subagent 定位主题、标注低置信读数）。
+  ⑤ 逐张输出：九字段契约（字段名与含义逐项列出）。
+  ⑥ 批次输出：四件套（batch_summary / repeated_ideas / contradictions_or_low_confidence /
+     wiki_section_candidates，候选章节六选）。
+  ⑦ 转录要求：数据类截图（人数/金额/榜单/表格）务必精确转录数字；
+     装饰图、表情包、氛围图可简写。
   ```
 
 **每张图输出契约（九字段）**：`manifest_index` / `filename` / `visible_text`（可见文字）/ `page_topic`（主题）/ `key_points`（关键要点）/ `diagrams_flows_ui`（图表/流程/UI 元素）/ `insights`（可提炼洞见）/ `confidence`（高/中/低）/ `unreadable_areas`（无法识别或不确定区域）。
@@ -234,7 +255,7 @@ PYTHONUTF8=1 PYTHONIOENCODING=utf-8 \
 - `image_source` 传**本地绝对路径**（中文与空格路径直接传，不走 PowerShell 管道）；单图单工具调用，逐张按 manifest index 对账。
 - 按图型选工具：常规截图/扫描件用 `analyze_image` 兜底；文字密集图优先 `extract_text_from_screenshot`；架构/流程图优先 `understand_technical_diagram`；统计图表优先 `analyze_data_visualization`。
 - **隐私边界**：视觉 MCP 是云端通道，图片内容会上送智谱服务器处理；涉及敏感资料时先经用户确认再走此通道。
-- **subagent 授权**：要让只读 subagent（如 `image-reader`）在此通道下读图，项目需在其 agent 定义的 `tools` 中显式授予对应 `mcp__zai-mcp-server__*` 工具；未授予时由主线程分批逐张调用。
+- **subagent 授权**：要让只读 subagent（如 `image-reader`）在此通道下读图，项目需在其 agent 定义的 `tools` 中显式授予对应 `mcp__zai-mcp-server__*` 工具；未授予时由主线程分批逐张调用。改用 `Explore` 等未授予 MCP 工具的类型时同样回退主线程逐张调用，并按 manifest index 对账。
 
 ### 图片读取能力探测（读图前必做一次）
 
@@ -242,12 +263,13 @@ PYTHONUTF8=1 PYTHONIOENCODING=utf-8 \
   1. **`Read` 单图探测**：返回内容含图片视觉信息 → **Read 视觉通道可用**，走正常 subagent 批量分析（§Subagent 批量分析）。
   2. **视觉 MCP 单图探测**：`Read` 仅返回 `... has been uploaded to CDN and is available at: https://...` 文本回执时，调 `mcp__zai-mcp-server__analyze_image` 并把该图**本地绝对路径**传入 `image_source`：返回真实视觉内容 → **视觉 MCP 通道可用**，按 §视觉理解 MCP 通道 的调用约定读图。
   3. 两级探测都失败（MCP 未配置 / 调用报错 / 无视觉内容）→ 进入降级流程。
-- **通道能力矩阵**（集中维护，验证后更新；顺序探测机制使其自纠正，矩阵过期也不影响判断）：
+- **通道能力矩阵**（集中维护，验证后更新；顺序探测机制使其自纠正，矩阵过期也不影响判断）。`Read` 视觉可用性由**运行时 × 网关/模型**两维共同决定，不单看网关：探测失败多为该组合的多模态下推链路未启用，而非模型能力问题（GLM 本身是多模态模型）——同一模型在不同运行时可能结论相反：
   - 官方 Anthropic API：`Read` 视觉可用（默认）。
-  - 智谱 GLM 网关：`Read` **已验证不可用**（仅返回 CDN URL 回执，无视觉内容；主线程与 subagent 同失效）；`zai-mcp-server` 视觉 MCP **已验证可用**（2026-08-19 本地实测：`analyze_image` 以含中文与空格的本地绝对路径成功返回完整视觉描述与文字转录）。
+  - Claude Code + 智谱 GLM 网关：`Read` **已验证不可用**（仅返回 CDN URL 回执，无视觉内容；主线程与 subagent 同失效）；`zai-mcp-server` 视觉 MCP **已验证可用**（2026-08-19 本地实测：`analyze_image` 以含中文与空格的本地绝对路径成功返回完整视觉描述与文字转录）。
+  - ZCode 运行时（GLM 模型）：`Read` 视觉**已验证可用**（2026-09-05 实测，主线程与 Explore subagent 一致，可直接读本地中文路径图片）；与上一行不矛盾——可用性按"运行时 × 网关"组合记录。
   - `4_5v_mcp`（GLM Coding Plan 服务端内置的 image_analysis 通道）：仅支持远程 URL，本地 raw 图片不适用。
   - MiniMax 网关：**未验证**（待测；若在此网关下，先做顺序探测，把结果回写本节）。
-- 探测结果写入当次 `log.md` 条目（视觉通道：Read 可用 / 视觉 MCP 可用 / 均不可用 + 网关名）。
+- 探测结果写入当次 `log.md` 条目（视觉通道：Read 可用 / 视觉 MCP 可用 / 均不可用 + 运行时名 + 网关/模型名）。
 
 ### 视觉不可用时的降级流程
 
