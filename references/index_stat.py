@@ -6,7 +6,8 @@
 
   - wiki_file_count         实际 wiki/**/*.md 文件数（排除 index.md / log.md / *.canvas / templates/ / assets/）
   - registered_domain_count schema『领域注册表』数据行数（CLAUDE.md 优先，AGENTS.md 对照）
-  - indexed_page_count      index 数据行 [[title]] 可解析到唯一 wiki 文件、按 path 去重后的条目数
+  - indexed_page_count      index 数据行 [[target]] 可解析到唯一 wiki 文件、按 path 去重后的条目数
+                            （target 支持 wiki/ 前缀全路径、无前缀相对路径、裸 stem 三种形式）
   - broken_count            无法唯一解析且不属于排除项的 index 链接（未命中 / 歧义）
   - missing_count           有 wiki 文件但无索引条目覆盖
   - duplicate_count         同一 wiki 页面重复出现的额外条目数（出现数 − 1）
@@ -128,7 +129,14 @@ def resolve(targets: list[str], wiki_files: list[str]):
     for t in targets:
         if t.startswith("raw/") or t.lower().endswith(ATTACH_EXT):
             continue  # 排除项不计入
-        hits = {f for f in wiki_files if f == t or f == "wiki/" + t or f.endswith("/" + t)}
+        # 匹配形态（wiki_files 均为 .md 相对路径，四种活形态；旧实现的无 .md 后缀形态永不命中，已废弃）：
+        #   t = "wiki/A/页"     → f == t + ".md"
+        #   t = "A/页"          → f == "wiki/" + t + ".md" 或 f.endswith("/" + t + ".md")
+        #   t = "页"（裸 stem） → stem 兜底
+        hits = {f for f in wiki_files
+                if f == t + ".md"
+                or f == "wiki/" + t + ".md"
+                or f.endswith("/" + t + ".md")}
         stem_hits = by_stem.get(t, [])
         if len(hits) == 1:
             page = next(iter(hits))

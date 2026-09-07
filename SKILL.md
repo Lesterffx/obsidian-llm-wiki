@@ -163,9 +163,10 @@ PYTHONUTF8=1 PYTHONIOENCODING=utf-8 \
    - 对 raw-only 图片目录：按自然文件名顺序处理。
    - 对 PDF/DOCX/PPTX 源：先用 `.venv` 检查文本、内嵌媒体、page/slide 顺序与文档元数据，再决定如何把图片分配到批次。
    - 若 `sources` 为空或不完整：按精确文件名全库搜索，报告未解析或歧义匹配。
+   - **双向对账**：除嵌入→文件（唯一性/缺失/重名）外，还须做**文件→嵌入反查**——sources 目录中未被页面嵌入的文件逐张定性：先 MD5 比对时间近邻判断是否同图重复保存，再读图判定是 同题另拍 / 解析续页 / 独立题目；结论写入页面边界说明并留用户处置（raw 只读，不代移动/删除）。未嵌入 ≠ 可删，也可能藏着归属错目录的嵌入图。
    - **视觉通道探测**：建 manifest 后、派发读图前，先按 §运行时与网关适配 做视觉通道顺序探测（`Read` 单图 → 视觉理解 MCP（如 zai-mcp-server）单图）；两条通道都不可用才走降级（manifest 照建，视觉字段标"视觉未识别"，基于已有文字提炼）。
 2. **保留顺序**：已有 wiki 嵌入顺序是权威顺序；raw-only 图片集用自然文件名顺序；优化时不擅自重排嵌入，除非用户明确要求。
-3. **覆盖风险检测（报告而不猜测）**：检测重名文件、缺失文件、非图片嵌入、位于 declared `sources` 之外的图片；**不要猜测**哪个重名图是意图所指——报告出来让用户/主 agent 决定。
+3. **覆盖风险检测（报告而不猜测）**：检测重名文件、缺失文件、非图片嵌入、位于 declared `sources` 之外的图片；**不要猜测**哪个重名图是意图所指——报告出来让用户/主 agent 决定。嵌入唯一命中其他 raw 目录（跨目录图片/同图双存）时：短文件名全库唯一即可正常解析、不算断链，按 vault 先例在 frontmatter `sources` **登记多个目录**，**不移动 raw 文件**。
 4. **分析可追溯**：中间笔记放工作上下文或最终回复，**不写 `raw/`**；写 wiki 内容时用文件名 + manifest index 标识每张图。
 
 ## Subagent 批量分析（Claude Code 适配）
@@ -194,6 +195,8 @@ PYTHONUTF8=1 PYTHONIOENCODING=utf-8 \
 - **单批容量**：每个 subagent 单批控制在合理大小（默认每批 ≤30 张，沿用 11–30 档经验，避免单 subagent 上下文过载）。
 - **单波并发**：每波同时派发 ≤6 个只读 subagent（单条消息内多个 `Agent` tool use 即并发）。Claude Code 动态 Workflow 理论并发上限为 16，但**第三方网关可用性未经验证**，保守取 ≤6。注意：网关并发与"读图视觉通道"是两个独立问题——某些网关下 `Read` 图片仅返回 CDN 上传回执而无视觉内容（见 §运行时与网关适配），需先做视觉通道顺序探测再决定读图方式：`Read` 可用则照常派发 Read 批次；`Read` 不可用但视觉 MCP 可用（见 §视觉理解 MCP 通道）时，subagent 已被授予视觉 MCP 工具则照常派发批次（subagent 用 MCP 工具替代 `Read` 读图），未授予则由主线程分批逐张调用 MCP 工具并按 manifest 对账。
 - **多波推进**：当总量超过单波容量（如 100–300 张）时，以**波次**持续推进——主 agent 每波派发 ≤6 个 subagent 并行读图，每波返回后按 manifest 序号对账，再派发下一波，直到 manifest 全部图片处理完。波次数不限（300 张 ÷ 约 90 张/波 ≈ 2–4 波）。运行时并发低于批数时也以波次执行这同一批数目，**不增加批次总数、不削弱大批量能力**。
+- **并发受限降级链**：派发报并发上限错误（如 `user concurrency limit exceeded` / `model concurrency limit exceeded`，多会话并行时常见）→ 降为**同批串行**逐个派发（批数与每批规模不变，串行批次每批约 130–250K subagent tokens 属正常水位）；串行仍失败 → 主线程按批次自行读图。跨批 coverage 拼接（如题号连续性核对、跨页同题互证）由主线程归并，不依赖单个 subagent 的全局视野。
+- **整卷/错题集类页面**：题库截图流手写合集页（整卷页、错题本）的双向对账表、作答统计、错题清单与跨页互证模板见 [references/exam-collection-playbook.md](references/exam-collection-playbook.md)。
 
 > 这是对旧版"100+ 首轮 6 批后追加"粗糙表述的规范化：大批量（100–300 张）多 Agents 并行读图能力**保留并增强**为一等能力，对齐 Codex 版 `execute in waves` 思想。
 
@@ -439,7 +442,7 @@ _统计：{indexed_page_count} 个已索引页面 | {wiki_file_count} 个 Wiki �
 
 | 变量 | 定义 | 计数口径 |
 |---|---|---|
-| `indexed_page_count` | 可解析到真实 `wiki/**/*.md` 且**去重后**的索引条目数 | 抽取 index 所有 `\| [[<title>]] \|` 数据行的 title → 按 stem（去 `.md`）在 `wiki/**/*.md` 查找 → 命中且唯一则计入；同一 wiki 文件多次出现只计 1 次 |
+| `indexed_page_count` | 可解析到真实 `wiki/**/*.md` 且**去重后**的索引条目数 | 抽取 index 所有 `\| [[<target>]] \|` 数据行的 target → 按**三形式**在 `wiki/**/*.md` 查找：① `[[wiki/路径/标题]]` 全路径、② `[[子路径/标题]]` 相对路径、③ `[[标题]]` 裸 stem（①②按路径 + `.md` 精确匹配，③按 stem 兜底）→ 命中且唯一则计入；同一 wiki 文件多次出现只计 1 次。**带 `wiki/` 前缀的全路径条目是合法索引形式**，不得按裸 stem 口径误报为断链/未收录 |
 | `wiki_file_count` | 实际 `wiki/**/*.md` 文件数 | glob 扫描，排除 `index.md` / `log.md` / `*.canvas` / `templates/` / `assets/` |
 | `registered_domain_count` | 领域注册表数据行数 | 读 schema `## 领域注册表` 表，去表头与分隔行后的数据行数 |
 
@@ -452,8 +455,8 @@ _统计：{indexed_page_count} 个已索引页面 | {wiki_file_count} 个 Wiki �
 | `duplicate_count` | 同一真实 wiki 页面在 index 中的额外重复条目 | 同 path 被 ≥2 条目解析 → +(出现数 − 1)；首次出现不计 |
 
 **机检**：
-- **快校（lint 用，上限预警）**：保留旧 awk 一行版，重命名为 "raw entry count"（仅数 `| [[` 候选行，不去重、不解析），作为漂移预警的快检上限——**不是** `indexed_page_count` 的精确值。
-- **精校（所有写命令用）**：**直接运行 Skill 自带固定脚本 [references/index_stat.py](references/index_stat.py)**，不要每次临时新写脚本。脚本实现与本条口径一致：扫 `wiki/**/*.md` 建 `{stem: path}` 字典 → 解析 index 数据行 title → 命中（dedupe by path，记 `indexed_page_count`）/ 未命中或歧义（`broken_count`）/ 字典中未被命中（`missing_count`）/ 同 path 重复（`duplicate_count`）；`wiki_file_count` = 字典 size；`registered_domain_count` = schema 注册表数据行数。脚本额外输出未收录/断链/重复明细、双入口注册表行数对照、**页脚旧值 vs 扫描值漂移报告**（供『统计漂移修正』，`footer_match=true` 即页脚无漂移）；`--json` 为机读模式。脚本不可用时按本条算法降级手工执行。
+- **快校（lint 用，上限预警）**：保留旧 awk 一行版，重命名为 "raw entry count"（仅数 `| [[` 候选行，不去重、不解析），作为漂移预警的快检上限——**不是** `indexed_page_count` 的精确值。awk 状态机实现有漏计风险（多表连续等场景可能漏数），精确对照以全文件 `grep -c '^| \[\['` 或精校脚本为准。
+- **精校（所有写命令用）**：**直接运行 Skill 自带固定脚本 [references/index_stat.py](references/index_stat.py)**，不要每次临时新写脚本。脚本实现与本条口径一致：扫 `wiki/**/*.md` 建路径表与 stem 索引 → 解析 index 数据行 target → 按三形式解析（见 `indexed_page_count` 口径）→ 命中（dedupe by path，记 `indexed_page_count`）/ 未命中或歧义（`broken_count`）/ 未被命中（`missing_count`）/ 同 path 重复（`duplicate_count`）；`wiki_file_count` = 文件表 size；`registered_domain_count` = schema 注册表数据行数。脚本额外输出未收录/断链/重复明细、双入口注册表行数对照、**页脚旧值 vs 扫描值漂移报告**（供『统计漂移修正』，`footer_match=true` 即页脚无漂移）；`--json` 为机读模式（`broken` 明细为 `{"target", "reason"}` 对象数组，后处理时勿整串 `str()` 后再做字符串匹配）。脚本不可用时按本条算法降级手工执行。
 
 ```bash
 # 快校 awk 一行版（raw entry count 上限，非精确 indexed_page_count）
@@ -492,11 +495,23 @@ missing_count / broken_count / duplicate_count ==  当次扫描结果
 1. 完成 wiki 页面变更（创建/修改/删除）
 2. 决定 `<简洁动作摘要>`（按 §Index 顶部维护块 建议用语表，允许简洁版）
 3. 在 `index.md` 上做增量修改
-4. 运行 §六变量计数口径 精校 → 得六变量新值
+4. 运行 §六变量计数口径 精校 → 得六变量新值（精校前先快查 `wiki/**/*.md` 文件数与上轮差异，防并行投放污染计数，见 §并行会话干扰防护）
 5. 顶部维护块 + 底部统计行 + 索引健康行 **同一次编辑**同步替换（三处日期字面一致）
-6. 若涉及双入口 schema 变更（如新领域），同步编辑 `AGENTS.md` + `CLAUDE.md` + 验 SHA-256
-7. `log.md` 追加一条最终记录（含 `AGENTS.md` / `CLAUDE.md` / `index.md` / frontmatter 四项 + 六变量 + `indexed_page_count` 变化/不变/漂移修正 标识）
-8. 写后自检（快校 awk + 精校固定脚本 [references/index_stat.py](references/index_stat.py)；统计行与健康行各只出现 1 次）
+6. **页脚写后复验**：三处同步完成后**必须重跑精校**，扫描值与页脚一致（`footer_match=true`）方可收尾；若复验发现精校期间出现并行投放/新条目导致漂移，**按最终扫描值二次覆盖页脚**并再次复验
+7. 若涉及双入口 schema 变更（如新领域），同步编辑 `AGENTS.md` + `CLAUDE.md` + 验 SHA-256
+8. `log.md` 追加一条最终记录（含 `AGENTS.md` / `CLAUDE.md` / `index.md` / frontmatter 四项 + 六变量 + `indexed_page_count` 变化/不变/漂移修正 标识）
+9. 写后自检（快校 awk + 精校固定脚本 [references/index_stat.py](references/index_stat.py)；统计行与健康行各只出现 1 次）
+
+### 并行会话干扰防护（多会话同时维护同一 vault 时）
+
+并行会话会同时改 `index.md`、`log.md`、新建页面，统计与锚点因此漂移。写型任务全程遵循：
+
+1. **精校前快查漂移**：对比 `wiki/**/*.md` 文件数与上轮已知值；发现新投放文件 → 只报告并留给对应会话/用户，不代补录（missing 明细只是快照）。
+2. **页脚以最终扫描值为准**：校验期间每次发现文件数/条目变化，页脚按当次扫描值重新覆盖，绝不沿用上轮手算值递增。
+3. **modified-since-read 重读协议**：Edit/Write 报 "File has been modified since read" → 重读该文件相关段落，确认锚点仍有效后重试；同步盘触碰 mtime 但内容未变时（可用 `wc -c` + 时间戳佐证）重读即过，勿当冲突硬改。
+4. **log-preflight 结论沿用前先验状态**：预检与追加之间存在窗口，沿用早前预检结论前先 `wc -c` + `sha256sum` 确认 `log.md` 未被并行会话动过；不一致则重跑预检。
+5. **PENDING 文本不跨命令持久**：shell 变量不跨工具调用存活，待追加文本必须在追加命令内重建；两次构造须逐字一致（字节增量对账就是抓"两次粘贴不一致"的探测器）。
+6. **验证链防退出码截断**：`grep -c` 计数为 0 时退出码 1，会截断 `&&` 链——预期可能为 0 的计数校验一律加 `|| true`；控制台中文回显乱码（GBK/UTF-8）时改用 Read 工具或脚本 `--json` 输出核验，不以终端回显为准。
 
 **增量 vs 全量分工**：
 
