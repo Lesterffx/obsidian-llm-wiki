@@ -1,6 +1,6 @@
 ---
 name: obsidian-llm-wiki
-description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wiki 双层 + AGENTS.md/CLAUDE.md schema + index.md + log.md）。支持 ingest、query、optimize、extract-thinking-frameworks、lint、index、migrate、delete；强制维护遍历（Mandatory Maintenance Pass）自动检查并修复 frontmatter/index/schema 结构缺口；index.md 统一三权威变量（indexed_page_count/wiki_file_count/registered_domain_count）+ 三健康变量（missing_count/broken_count/duplicate_count）+ 索引健康行；双入口 schema 字节一致并验 SHA-256。支持用 Claude Code Agent 工具派发只读 subagent 以波次并行分析图片密集资料（截图课程、PPT、扫描件，支持 100–300 张多 Agents 并行读图），用项目 .venv 做 PDF/DOCX/PPTX/XLSX 预处理与 image manifest。触发词：wiki、知识库维护、ingest、preprocess、batch-analyze images、subagent、波次并行、manifest、venv、optimize、lint、index、索引健康、六变量统计、双入口 schema、补录、漂移修正、知识管理、Obsidian 笔记整理、读图降级、视觉通道探测、视觉 MCP、zai-mcp-server、GLM-4.6V、GLM/MiniMax 网关、log.md 大文件追加、固定只读日志预检（log-preflight.ps1，2 MiB 阈值与跨年判定）、日志分卷轮转、log status、log query、log rotate、固定 PDF 预处理（preprocess_pdf.py）、任务临时目录清理（tmp/obsidian-llm-wiki、created_files.json、temp-cleanup）。"
+description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wiki 双层 + AGENTS.md/CLAUDE.md schema + index.md + log.md）。支持 ingest、query、query-image、optimize、extract-thinking-frameworks、lint、index、migrate、delete；强制维护遍历（Mandatory Maintenance Pass）自动检查并修复 frontmatter/index/schema 结构缺口；index.md 统一三权威变量（indexed_page_count/wiki_file_count/registered_domain_count）+ 三健康变量（missing_count/broken_count/duplicate_count）+ 索引健康行；双入口 schema 字节一致并验 SHA-256。支持用 Claude Code Agent 工具派发只读 subagent 以波次并行分析图片密集资料（截图课程、PPT、扫描件，支持 100–300 张多 Agents 并行读图），用项目 .venv 做 PDF/DOCX/PPTX/XLSX 预处理与 image manifest。触发词：wiki、知识库维护、ingest、preprocess、batch-analyze images、subagent、波次并行、manifest、venv、optimize、lint、index、索引健康、六变量统计、双入口 schema、补录、漂移修正、知识管理、Obsidian 笔记整理、读图降级、视觉通道探测、视觉 MCP、zai-mcp-server、GLM-4.6V、GLM/MiniMax 网关、log.md 大文件追加、固定只读日志预检（log-preflight.ps1，2 MiB 阈值与跨年判定）、日志分卷轮转、log status、log query、log rotate、固定 PDF 预处理（preprocess_pdf.py）、任务临时目录清理（tmp/obsidian-llm-wiki、created_files.json、temp-cleanup）、query-image、图片查询、截图检索。"
 ---
 
 # Obsidian LLM Wiki Skill
@@ -599,6 +599,18 @@ missing_count / broken_count / duplicate_count ==  当次扫描结果
 5. 综合答案，引用页面 `[[标题]]`
 6. **运行强制维护遍历**（query 默认只读 → **只报告** schema/index gaps，不自动修改）
 7. 询问用户是否将答案归档为新 wiki 页面；若是，创建页面并更新 index.md（按 §Index Metadata And Statistics 重算六变量）和 log.md
+
+### /obsidian-llm-wiki query-image \<图片…\> [问题]
+
+以图片为主输入、可搭配文字问题查询 wiki（试题截图、图表、扫描件等找相似页面）。**视觉能力是硬性前提**。
+
+1. **视觉通道预检**：按 §运行时与网关适配 的「图片读取能力探测」顺序探测（`Read` 单图 → 视觉 MCP 单图）；两条通道都不可用 → 报告当前运行时/模型不支持视觉、无法执行本命令并终止，可提示改用纯文字 `query`；本命令不降级空跑
+2. **读图提取查询要素（自动并行）**：按输入图片数量自动套用 §Subagent 批量分析 的分批与波次机制：1–10 张主线程直读；11–30 张拆 2–3 个只读 subagent 批次；31 张以上 ≤6 批次、单波并发 ≤6 波次推进；批次随图片数量自动增减
+3. **轻量查询要素契约（每张图）**：可见文字（题干/正文）、代码片段、关键实体与检索关键词、无法辨认区域（显式标「存疑」）；本命令以检索为目的，不要求 ingest 的九字段全量契约
+4. 合并图片要素与用户文字问题，形成检索关键词集合
+5. **按 query 流程作答**：执行 `/obsidian-llm-wiki query` 步骤 2–5；答案须区分「图片识别内容 / 库内事实 / 推论」，图片模糊或无法辨认处显式标注存疑，不得虚构图片内容
+6. **运行强制维护遍历**（query-image 默认只读 → **只报告** schema/index gaps，不自动修改）
+7. 询问用户是否将答案归档为新 wiki 页面；输入图片默认不入 `raw/`（归档页为纯文字，来源说明标注「查询输入截图」）；用户明确要求图片入库时才按 ingest 流程补 image manifest
 
 ### /obsidian-llm-wiki optimize \<page\>
 
