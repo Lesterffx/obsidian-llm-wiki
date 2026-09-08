@@ -1,6 +1,6 @@
 ---
 name: obsidian-llm-wiki
-description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wiki 双层 + AGENTS.md/CLAUDE.md schema + index.md + log.md）。支持 ingest、query、query-image、optimize、extract-thinking-frameworks、lint、index、migrate、delete；强制维护遍历（Mandatory Maintenance Pass）自动检查并修复 frontmatter/index/schema 结构缺口；index.md 统一三权威变量（indexed_page_count/wiki_file_count/registered_domain_count）+ 三健康变量（missing_count/broken_count/duplicate_count）+ 索引健康行；双入口 schema 字节一致并验 SHA-256。支持用 Claude Code Agent 工具派发只读 subagent 以波次并行分析图片密集资料（截图课程、PPT、扫描件，支持 100–300 张多 Agents 并行读图），用项目 .venv 做 PDF/DOCX/PPTX/XLSX 预处理与 image manifest。触发词：wiki、知识库维护、ingest、preprocess、batch-analyze images、subagent、波次并行、manifest、venv、optimize、lint、index、索引健康、六变量统计、双入口 schema、补录、漂移修正、知识管理、Obsidian 笔记整理、读图降级、视觉通道探测、视觉 MCP、zai-mcp-server、GLM-4.6V、GLM/MiniMax 网关、log.md 大文件追加、固定只读日志预检（log-preflight.ps1，2 MiB 阈值与跨年判定）、日志分卷轮转、log status、log query、log rotate、固定 PDF 预处理（preprocess_pdf.py）、任务临时目录清理（tmp/obsidian-llm-wiki、created_files.json、temp-cleanup）、query-image、图片查询、截图检索。"
+description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wiki 双层 + AGENTS.md/CLAUDE.md schema + index.md + log.md）。支持 ingest、query、query-image、optimize、extract-thinking-frameworks、lint、index、migrate、update-raw-reference、delete；强制维护遍历（Mandatory Maintenance Pass）自动检查并修复 frontmatter/index/schema 结构缺口；index.md 统一三权威变量（indexed_page_count/wiki_file_count/registered_domain_count）+ 三健康变量（missing_count/broken_count/duplicate_count）+ 索引健康行；双入口 schema 字节一致并验 SHA-256。支持用 Claude Code Agent 工具派发只读 subagent 以波次并行分析图片密集资料（截图课程、PPT、扫描件，支持 100–300 张多 Agents 并行读图），用项目 .venv 做 PDF/DOCX/PPTX/XLSX 预处理与 image manifest。触发词：wiki、知识库维护、ingest、preprocess、batch-analyze images、subagent、波次并行、manifest、venv、optimize、lint、index、索引健康、六变量统计、双入口 schema、补录、漂移修正、知识管理、Obsidian 笔记整理、读图降级、视觉通道探测、视觉 MCP、zai-mcp-server、GLM-4.6V、GLM/MiniMax 网关、log.md 大文件追加、固定只读日志预检（log-preflight.ps1，2 MiB 阈值与跨年判定）、日志分卷轮转、log status、log query、log rotate、固定 PDF 预处理（preprocess_pdf.py）、任务临时目录清理（tmp/obsidian-llm-wiki、created_files.json、temp-cleanup）、query-image、图片查询、截图检索、update-raw-reference、媒体引用修复、嵌入改写。"
 ---
 
 # Obsidian LLM Wiki Skill
@@ -60,7 +60,7 @@ description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wi
 - 不确定时**提问，不猜测**；图片重名/缺失/无法唯一定位一律先报告。
 - **不虚构**来源、数据、引用或验证结果。
 - 不修改 Windows 系统 PATH，不自动安装/卸载/重装 Python，不调用用户目录下的 Python；不通过 PowerShell 管道向 Python 传递中文路径。
-- 图片嵌入用短文件名 `![[文件名.png]]`，不写完整路径（Obsidian 全库自动解析）。
+- 图片嵌入默认短文件名 `![[文件名.png]]`（Obsidian 全库自动解析）；通用易重名文件名（如 `image-001.png`）或 vault schema 明确要求时用全路径 `![[raw/…]]`，防跨目录误解析。
 - **图片视觉未识别时必须如实标注**（视觉未识别 / 基于正文非图像识别），绝不依文件名或上下文虚构图中文字、人物、数字、颜色。
 - **`log.md` 大文件（超 `Read` 上限）追加用 EOF 直追**（bash heredoc / `Add-Content -LiteralPath`），不为追加而整读。
 - **任务临时文件自动清理**：杂项中转/对账临时文件只放系统临时目录（Git Bash `/tmp`，即 Windows `%TEMP%`，如 `C:/Users/<用户名>/AppData/Local/Temp/`）；Skill 管理的任务产物（如 PDF 预处理中间产物）统一放任务目录 `<vault-root>/tmp/obsidian-llm-wiki/<task-id>/`；两者均禁止写入 `raw/`、`wiki/` 或 vault 其他位置。优先用命令内变量、命令替换与进程替换（如 `diff <(...) <(...)`）内联完成，不落盘；确需落盘时，任务收尾按 [references/temp-cleanup.md](references/temp-cleanup.md) 自动清理，无需用户确认（若运行时配置了命令守卫，tmp/temp 类目录下的单文件 `rm` 与单路径非递归删除可配置为免审批放行——后者是空任务目录窄例外的唯一删除方式；目录级与递归删除仍应直接拦截）；系统临时目录与任务目录均不得残留任务临时文件。
@@ -669,6 +669,17 @@ missing_count / broken_count / duplicate_count ==  当次扫描结果
 3. 对每个文件：读内容 → 提取 inline tags → 生成 frontmatter（按 schema 规范）→ 确定目标（raw/ 或 wiki/）→ 写入新位置 → **同步 `index.md`**（按 §Index Metadata And Statistics，操作摘要 = `同步索引：迁移 N 个页面至 wiki/<领域>/`，N = 本次累计的 wiki 写入数；重算六变量）→ 记录迁移日志
 4. 若迁移引入新领域导致双入口 schema 变更，**同步编辑 `AGENTS.md` + `CLAUDE.md` + 验 SHA-256**
 5. 所有文件迁移完成后，**建议运行 `/obsidian-llm-wiki index` 全量重建**（增量可能因目录拓扑变化漂移），并把"全量重建"作为迁移日志的最后一条
+
+### /obsidian-llm-wiki update-raw-reference \<wiki页面.md\> \<raw目录\>
+
+媒体引用修复：来源图片/视频目录迁移后，把指定 Wiki 页面的媒体嵌入一站式改写到指定 raw 目录的 Obsidian 全路径嵌入格式 `![[raw/…]]`，并顺带补缺 frontmatter 与补录索引（**缺才补、有则只验证**）。
+
+1. **参数校验（硬门槛，不合法立即报错、零写入）**：参数 1 必须是 `wiki/` 下真实存在的 `.md` 文件；参数 2 必须是 `raw/` 下真实存在的目录；两参数必填。两个名称通常相同（页面 stem ↔ raw 目录名）但**不强制**；不一致时照常执行，仅在报告中提示。
+2. **嵌入清点（只读）**：提取页面全部 `![[...]]` 嵌入，按扩展名区分媒体嵌入（图片 png/jpg/jpeg/webp/gif/svg/bmp，视频 mp4/mov/webm/m4v，音频 mp3/wav/m4a/ogg 等）与其他嵌入；已有嵌入顺序是权威顺序，不重排。
+3. **改写规则**：仅当 `raw/<参数2目录>/<原文件名>` 真实存在时，才把该媒体嵌入改写为 `![[raw/<目录>/<文件名>]]`；通用易重名文件名（如 `image-001.png`）必须用全路径，防跨目录误解析。目标文件不存在、原名解析歧义、或嵌入已有效指向其他 raw 目录时**不改写**，列入未决报告。绝不移动/修改/删除 `raw/` 文件，绝不删除既有嵌入，不改 wiki 链接与正文。
+4. **frontmatter（缺才补、有则只验证）**：页面无 frontmatter 时按 §Frontmatter 与 Tag 规范化 补齐七字段（结构性例外，可置于正文前）；已存在则只校验，不改动。`updated` 仅在发生实质变化时刷新。
+5. **补录索引（缺才补、有则只验证）**：页面在 `index.md` 对应分区无条目时，按 §Index Metadata And Statistics 补录（`indexed_page_count` +1，操作摘要 = `同步索引：补录既有页面 <页面名>`），顶部维护块 + 底部统计行 + 索引健康行同一次编辑，重跑精校确认 `footer_match=true`；已有条目则只验证链接可解析，跳过。
+6. **收尾**：运行强制维护遍历；`log.md` 按「log.md 追加（大文件安全）」预检后追加一条最终记录（含参数校验结果、改写/未改写清单、六变量与变化类型）。
 
 ### /obsidian-llm-wiki delete \<page\>
 

@@ -169,6 +169,20 @@ claude mcp add -s user zai-mcp-server --env Z_AI_API_KEY=YOUR_API_KEY -- npx -y 
 | `/obsidian-llm-wiki migrate` | 一次性迁移：将已有笔记迁移到 LLM Wiki 模式 |
 | `/obsidian-llm-wiki index` | 从当前 wiki 状态**全量重建** `index.md`，按三权威变量 + 三健康变量 + 索引健康行刷新。增量更新由 ingest/optimize/extract-thinking-frameworks/migrate/delete 触发；本命令只做全量重建。详见 SKILL.md `## Index Metadata And Statistics` |
 | `/obsidian-llm-wiki log <mode>` | 日志工作流：`status`（只读预检详情）/ `query "<条件>"`（活动日志与历史分卷有界检索）/ `rotate now\|year\|size\|auto`（整文件移动式分卷轮转，见 `references/log-rotation.md`）。写入型任务追加 `log.md` 前自动跑 2 MiB 固定预检 |
+| `/obsidian-llm-wiki update-raw-reference <页面.md> <raw目录>` | 媒体引用修复：把页面图片/视频嵌入一站式改写到指定 raw 目录的全路径嵌入格式 `![[raw/…]]`；frontmatter 与索引条目**缺才补、有则只验证** |
+
+### update-raw-reference：媒体引用修复
+
+来源图片/视频目录迁移（如 raw 子目录重组、图片整体搬移）后，把指定 Wiki 页面的媒体嵌入一站式改写到新 raw 目录的 Obsidian 全路径嵌入格式：
+
+```bash
+/obsidian-llm-wiki update-raw-reference wiki/<领域>/<页面>.md raw/<领域>/<资料名>/
+```
+
+- **参数校验是硬门槛**：参数 1 必须是 `wiki/` 下真实存在的 `.md` 文件，参数 2 必须是 `raw/` 下真实存在的目录；不合法立即报错、零写入。
+- **改写前逐条验证**：仅当目标 raw 目录中存在同名文件时才改写为 `![[raw/<目录>/<文件名>]]`；通用易重名文件名（如 `image-001.png`）必须用全路径，防跨目录误解析；改写绝不移动/修改 `raw/` 文件，绝不删除既有嵌入。
+- **同名不强制**：页面名称与 raw 目录名通常相同，但不一致时照常执行，仅在报告中提示。
+- **缺才补、有则只验证**：frontmatter 缺失时补齐七字段，`index.md` 无条目时补录并刷新统计；两者已存在时仅校验跳过。
 
 ## 日志预检与分卷（log）
 
