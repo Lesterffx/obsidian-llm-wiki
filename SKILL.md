@@ -1,6 +1,6 @@
 ---
 name: obsidian-llm-wiki
-description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wiki 双层 + AGENTS.md/CLAUDE.md schema + index.md + log.md）。支持 ingest、query、query-image、optimize、extract-thinking-frameworks、lint、index、migrate、update-raw-reference、delete；强制维护遍历（Mandatory Maintenance Pass）自动检查并修复 frontmatter/index/schema 结构缺口；index.md 统一三权威变量（indexed_page_count/wiki_file_count/registered_domain_count）+ 三健康变量（missing_count/broken_count/duplicate_count）+ 索引健康行；双入口 schema 字节一致并验 SHA-256。支持用 Claude Code Agent 工具派发只读 subagent 以波次并行分析图片密集资料（截图课程、PPT、扫描件，支持 100–300 张多 Agents 并行读图），用项目 .venv 做 PDF/DOCX/PPTX/XLSX 预处理与 image manifest。触发词：wiki、知识库维护、ingest、preprocess、batch-analyze images、subagent、波次并行、manifest、venv、optimize、lint、index、索引健康、六变量统计、双入口 schema、补录、漂移修正、知识管理、Obsidian 笔记整理、读图降级、视觉通道探测、视觉 MCP、zai-mcp-server、GLM-4.6V、GLM/MiniMax 网关、log.md 大文件追加、固定只读日志预检（log-preflight.ps1，2 MiB 阈值与跨年判定）、日志分卷轮转、log status、log query、log rotate、固定 PDF 预处理（preprocess_pdf.py）、任务临时目录清理（tmp/obsidian-llm-wiki、created_files.json、temp-cleanup）、query-image、图片查询、截图检索、update-raw-reference、媒体引用修复、嵌入改写。"
+description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wiki 双层 + AGENTS.md/CLAUDE.md schema + index.md + log.md）。支持 ingest、query、query-image、optimize、enhance-wiki-content、extract-thinking-frameworks、lint、index、migrate、update-raw-reference、delete；强制维护遍历（Mandatory Maintenance Pass）自动检查并修复 frontmatter/index/schema 结构缺口；index.md 统一三权威变量（indexed_page_count/wiki_file_count/registered_domain_count）+ 三健康变量（missing_count/broken_count/duplicate_count）+ 索引健康行；双入口 schema 字节一致并验 SHA-256。支持用 Claude Code Agent 工具派发只读 subagent 以波次并行分析图片密集资料（截图课程、PPT、扫描件，支持 100–300 张多 Agents 并行读图），用项目 .venv 做 PDF/DOCX/PPTX/XLSX 预处理与 image manifest。触发词：wiki、知识库维护、ingest、preprocess、batch-analyze images、subagent、波次并行、manifest、venv、optimize、lint、index、索引健康、六变量统计、双入口 schema、补录、漂移修正、enhance、内容增强、知识管理、Obsidian 笔记整理、读图降级、视觉通道探测、视觉 MCP、zai-mcp-server、GLM-4.6V、GLM/MiniMax 网关、log.md 大文件追加、固定只读日志预检（log-preflight.ps1，2 MiB 阈值与跨年判定）、日志分卷轮转、log status、log query、log rotate、固定 PDF 预处理（preprocess_pdf.py）、任务临时目录清理（tmp/obsidian-llm-wiki、created_files.json、temp-cleanup）、query-image、图片查询、截图检索、update-raw-reference、媒体引用修复、嵌入改写。"
 ---
 
 # Obsidian LLM Wiki Skill
@@ -680,6 +680,25 @@ missing_count / broken_count / duplicate_count ==  当次扫描结果
 4. **frontmatter（缺才补、有则只验证）**：页面无 frontmatter 时按 §Frontmatter 与 Tag 规范化 补齐七字段（结构性例外，可置于正文前）；已存在则只校验，不改动。`updated` 仅在发生实质变化时刷新。
 5. **补录索引（缺才补、有则只验证）**：页面在 `index.md` 对应分区无条目时，按 §Index Metadata And Statistics 补录（`indexed_page_count` +1，操作摘要 = `同步索引：补录既有页面 <页面名>`），顶部维护块 + 底部统计行 + 索引健康行同一次编辑，重跑精校确认 `footer_match=true`；已有条目则只验证链接可解析，跳过。
 6. **收尾**：运行强制维护遍历；`log.md` 按「log.md 追加（大文件安全）」预检后追加一条最终记录（含参数校验结果、改写/未改写清单、六变量与变化类型）。
+
+### /obsidian-llm-wiki enhance-wiki-content \<wiki页面.md\> [raw目录]
+
+Wiki 内容增强：`optimize` 的固定套路版。优化已有页面时**逐字保留已有正文、图片与视频嵌入和顺序**，只把提炼章节**追加在现有正文最后面**，统一追加六节：`资料总结`、`洞见`、`方法论提炼`、`最佳实践`、`金句精选`、`关联 Wiki 连接`；顺带补缺 frontmatter 与补录索引（**缺才补、有则只验证**）。与 `optimize` 的分工：optimize 允许优化表达、结构与既有内容；本命令不做表达改写，是"正文不动、只追加"的安全增强入口。
+
+**两种调用形态**：
+
+- **形态 A（带 raw 来源）**：`/obsidian-llm-wiki enhance-wiki-content <wiki/<领域>/<页面>.md> <raw/<领域>/<资料名>/>` —— 媒体（图片/视频）分析以指定 raw 目录为唯一来源；页面涉及图片内容时**先建 image manifest 再分析**（§图片密集资料分析，含双向对账）。
+- **形态 B（无 raw 来源）**：`/obsidian-llm-wiki enhance-wiki-content <wiki/<领域>/<页面>.md>` —— 仅基于页面已有文字与既有嵌入提炼，不新增媒体分析。
+
+执行流程：
+
+1. **参数校验（硬门槛，不合法立即报错、零写入）**：参数 1 必须是 `wiki/` 下真实存在的 `.md` 文件；形态 A 的参数 2 必须是 `raw/` 下真实存在的目录。两个名称通常相同（页面 stem ↔ raw 目录名）但**不强制**。
+2. **只读清点**：读页面全文与章节结构；提取全部 `![[...]]` 嵌入。已有正文与嵌入顺序是权威顺序，不重排、不删除、不改写；发现问题（重名/缺失/越界）先报告，不猜测。
+3. **媒体分析（仅形态 A，条件性）**：raw 目录含图片/视频时先建 image manifest，做视觉通道顺序探测后读图（≤10 张主线程直读，>10 张按 §Subagent 批量分析 派只读 subagent）；识别结果只作追加章节的依据，模糊或不确定内容显式标注，绝不虚构。形态 B 不派读图批次、不新增媒体分析。
+4. **末尾追加（append-only）**：把六节**追加在现有正文最后面**（既有 `## 相关` / `## 来源` 等收尾节之后；与既有同名节并存时不合并、保持追加位）；`关联 Wiki 连接` 节列 `[[页面标题]]` 链接，创建链接前确认目标页面存在，避免制造断链，不确定的概念放"待扩展"不伪装成链接；既有正文逐字不动。
+5. **frontmatter（缺才补、有则只验证）**：页面无 frontmatter 时按 §Frontmatter 与 Tag 规范化 补齐七字段（结构性例外，可置于正文前）；已存在则只校验、不改动，`updated` 仅在发生实质追加时按全局规则刷新。
+6. **补录索引（缺才补、有则只验证）**：页面在 `index.md` 对应分区无条目时按 §Index Metadata And Statistics 补录（`indexed_page_count` +1，操作摘要 = `同步索引：补录既有页面 <页面名>`），顶部维护块 + 底部统计行 + 索引健康行同一次编辑，重跑精校确认 `footer_match=true`；已有条目则只验证链接可解析，跳过。
+7. **收尾**：运行强制维护遍历；`log.md` 按「log.md 追加（大文件安全）」预检后追加一条最终记录（含形态 A/B、追加章节清单、frontmatter 与索引"补/验证"结果、六变量与变化类型）。
 
 ### /obsidian-llm-wiki delete \<page\>
 

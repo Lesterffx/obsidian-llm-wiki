@@ -170,6 +170,7 @@ claude mcp add -s user zai-mcp-server --env Z_AI_API_KEY=YOUR_API_KEY -- npx -y 
 | `/obsidian-llm-wiki index` | 从当前 wiki 状态**全量重建** `index.md`，按三权威变量 + 三健康变量 + 索引健康行刷新。增量更新由 ingest/optimize/extract-thinking-frameworks/migrate/delete 触发；本命令只做全量重建。详见 SKILL.md `## Index Metadata And Statistics` |
 | `/obsidian-llm-wiki log <mode>` | 日志工作流：`status`（只读预检详情）/ `query "<条件>"`（活动日志与历史分卷有界检索）/ `rotate now\|year\|size\|auto`（整文件移动式分卷轮转，见 `references/log-rotation.md`）。写入型任务追加 `log.md` 前自动跑 2 MiB 固定预检 |
 | `/obsidian-llm-wiki update-raw-reference <页面.md> <raw目录>` | 媒体引用修复：把页面图片/视频嵌入一站式改写到指定 raw 目录的全路径嵌入格式 `![[raw/…]]`；frontmatter 与索引条目**缺才补、有则只验证** |
+| `/obsidian-llm-wiki enhance-wiki-content <页面.md> [raw目录]` | Wiki 内容增强：逐字保留正文与图片/视频嵌入顺序，文末统一追加六节（资料总结/洞见/方法论提炼/最佳实践/金句精选/关联 Wiki 连接）；带 raw 目录时先建 image manifest 再分析；frontmatter 与索引条目**缺才补、有则只验证** |
 
 ### update-raw-reference：媒体引用修复
 
@@ -182,6 +183,23 @@ claude mcp add -s user zai-mcp-server --env Z_AI_API_KEY=YOUR_API_KEY -- npx -y 
 - **参数校验是硬门槛**：参数 1 必须是 `wiki/` 下真实存在的 `.md` 文件，参数 2 必须是 `raw/` 下真实存在的目录；不合法立即报错、零写入。
 - **改写前逐条验证**：仅当目标 raw 目录中存在同名文件时才改写为 `![[raw/<目录>/<文件名>]]`；通用易重名文件名（如 `image-001.png`）必须用全路径，防跨目录误解析；改写绝不移动/修改 `raw/` 文件，绝不删除既有嵌入。
 - **同名不强制**：页面名称与 raw 目录名通常相同，但不一致时照常执行，仅在报告中提示。
+- **缺才补、有则只验证**：frontmatter 缺失时补齐七字段，`index.md` 无条目时补录并刷新统计；两者已存在时仅校验跳过。
+
+### enhance-wiki-content：Wiki 内容增强
+
+optimize 的固定套路版：逐字保留已有正文、图片与视频嵌入和顺序，只把提炼章节追加在现有正文最后面，统一追加六节：`资料总结`、`洞见`、`方法论提炼`、`最佳实践`、`金句精选`、`关联 Wiki 连接`：
+
+```bash
+# 形态 A：带 raw 来源——媒体分析以指定 raw 目录为唯一来源，图片先建 image manifest 再分析
+/obsidian-llm-wiki enhance-wiki-content wiki/<领域>/<页面>.md raw/<领域>/<资料名>/
+
+# 形态 B：无 raw 来源——仅基于页面已有文字与既有嵌入提炼，不新增媒体分析
+/obsidian-llm-wiki enhance-wiki-content wiki/<领域>/<页面>.md
+```
+
+- **参数校验是硬门槛**：参数 1 必须是 `wiki/` 下真实存在的 `.md` 文件；形态 A 的参数 2 必须是 `raw/` 下真实存在的目录；不合法立即报错、零写入。
+- **正文不动、只追加**：既有正文与嵌入顺序是权威顺序，不重排、不删除、不改写；六节统一追加在现有正文最后面。
+- **与 optimize 的分工**：optimize 允许优化表达、结构与既有内容；enhance-wiki-content 不做表达改写，是"正文不动、只追加"的安全增强入口。
 - **缺才补、有则只验证**：frontmatter 缺失时补齐七字段，`index.md` 无条目时补录并刷新统计；两者已存在时仅校验跳过。
 
 ## 日志预检与分卷（log）
