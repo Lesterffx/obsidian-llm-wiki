@@ -1,6 +1,6 @@
 ---
 name: obsidian-llm-wiki
-description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wiki 双层 + AGENTS.md/CLAUDE.md schema + index.md + log.md）。支持 ingest、query、query-image、optimize、enhance-wiki-content、extract-thinking-frameworks、lint、index、migrate、update-raw-reference、delete；强制维护遍历（Mandatory Maintenance Pass）自动检查并修复 frontmatter/index/schema 结构缺口；index.md 统一三权威变量（indexed_page_count/wiki_file_count/registered_domain_count）+ 三健康变量（missing_count/broken_count/duplicate_count）+ 索引健康行；双入口 schema 字节一致并验 SHA-256。支持用 Claude Code Agent 工具派发只读 subagent 以波次并行分析图片密集资料（截图课程、PPT、扫描件，支持 100–300 张多 Agents 并行读图），用项目 .venv 做 PDF/DOCX/PPTX/XLSX 预处理与 image manifest。触发词：wiki、知识库维护、ingest、preprocess、batch-analyze images、subagent、波次并行、manifest、venv、optimize、lint、index、索引健康、六变量统计、双入口 schema、补录、漂移修正、enhance、内容增强、知识管理、Obsidian 笔记整理、读图降级、视觉通道探测、视觉 MCP、zai-mcp-server、GLM-4.6V、GLM/MiniMax 网关、log.md 大文件追加、固定只读日志预检（log-preflight.ps1，2 MiB 阈值与跨年判定）、日志分卷轮转、log status、log query、log rotate、固定 PDF 预处理（preprocess_pdf.py）、任务临时目录清理（tmp/obsidian-llm-wiki、created_files.json、temp-cleanup）、query-image、图片查询、截图检索、update-raw-reference、媒体引用修复、嵌入改写。"
+description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wiki 双层 + AGENTS.md/CLAUDE.md schema + index.md + log.md）。支持 ingest、query、query-image、optimize、enhance-wiki-content、extract-thinking-frameworks、lint、index、migrate、update-raw-reference、delete；强制维护遍历（Mandatory Maintenance Pass）自动检查并修复 frontmatter/index/schema 结构缺口；index.md 统一三权威变量（indexed_page_count/wiki_file_count/registered_domain_count）+ 三健康变量（missing_count/broken_count/duplicate_count）+ 索引健康行；双入口 schema 字节一致并验 SHA-256。支持用 Claude Code Agent 工具派发只读 subagent 以波次并行分析图片密集资料（截图课程、PPT、扫描件，支持 100–300 张多 Agents 并行读图），用项目 .venv 做 PDF/DOCX/PPTX/XLSX 预处理与 image manifest。触发词：wiki、知识库维护、ingest、preprocess、batch-analyze images、subagent、波次并行、manifest、venv、optimize、lint、index、索引健康、六变量统计、双入口 schema、补录、漂移修正、enhance、内容增强、知识管理、Obsidian 笔记整理、读图降级、视觉通道探测、视觉 MCP、zai-mcp-server、GLM-4.6V、GLM/MiniMax 网关、log.md 大文件追加、固定只读日志预检（log-preflight.ps1，2 MiB 阈值与跨年判定）、日志分卷轮转、log status、log query、log rotate、固定 PDF 预处理（preprocess_pdf.py）、任务临时目录清理（tmp/obsidian-llm-wiki、created_files.json、temp-cleanup）、query-image、图片查询、截图检索、update-raw-reference、媒体引用修复、嵌入改写、延后同步 defer（--defer 参数）、队列合并 sync（logs/queue 队列片段、flush_queue.py）、多运行时并行维护（ZCode / Codex 同时跑 defer 批次）。"
 ---
 
 # Obsidian LLM Wiki Skill
@@ -40,6 +40,8 @@ description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wi
 5. 检查 `AGENTS.md` / `CLAUDE.md` 中与任务相关的领域注册、raw/wiki 路径、工作流、安全、标签、图片/文档规则是否过期；按 vault 双入口契约处理（同步两文件 + 验 SHA-256）。
 6. 若有文件变更，向 `log.md` 追加**一条**最终记录，含 `AGENTS.md` / `CLAUDE.md` / `index.md` / frontmatter 四项检查结果（含 "已检查，无需更新"）；若 `index.md` 变更，记录三个权威变量 + 三个健康计数 + `indexed_page_count` 变化类型（变化 / 不变 / 统计漂移修正）。无维护变更但其他文件变更时，仍为每个检查项记 `已检查，无需更新`。（`log.md` 变大时按 §运行时与网关适配 的 EOF 直追法追加，勿整读。）
 7. 维护遍历**只动结构与元数据**：不因发现元数据或索引缺口就扩写、改写或重新诠释源资料正文。
+
+> **`--defer` 模式例外**：写命令带 `--defer` 时，第 4 步的 index 修改与第 6 步的 log 追加延后为写一个 `logs/queue/` 队列片段（见 §延后同步与队列合并），由批次末尾的 `/obsidian-llm-wiki sync` 统一完成；frontmatter 检查与页面级验证照常。
 
 > 本节取代旧版"Schema 与 Index 新鲜度检查"章节——那节的"只读默认不改、写操作必检查并记录"分工已并入本遍历。主 Claude agent 拥有此遍历与所有写入；subagent 只辅助分析。
 
@@ -84,6 +86,7 @@ description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wi
 - `assets/meeting-note.md` — 会议记录
 - `assets/tool-page.md` — 工具页面
 - `assets/log-active.md` — 新活动日志模板（仅在一次成功分卷轮转后创建新 `log.md` 时使用，见「log.md 追加（大文件安全）」与 [references/log-rotation.md](references/log-rotation.md)）
+- `assets/queue-fragment.md` — defer 队列片段模板（仅写命令带 `--defer` 时使用，见「延后同步与队列合并」与 [references/defer-sync.md](references/defer-sync.md)）
 
 **优先级**：如果项目根目录有 `templates/` 目录，优先使用项目模板；否则使用 Skill 自带的 `assets/` 模板。模板中的 `{{domain}}`、`{{date}}`、`{{title}}` 等占位符由主 agent 根据项目 schema 填写。
 
@@ -293,7 +296,7 @@ PYTHONUTF8=1 PYTHONIOENCODING=utf-8 \
 
 #### 第 0 步：追加前固定预检（写入型任务必跑）
 
-适用：`ingest` / `optimize` / `migrate` / `index` / 删除、归档、改名 / 实施修复的 lint / 其他产生了文件变更并要写最终日志的工作流。`query`、只读 lint/audit、`log status`、`log query` 与无文件变化的任务**不跑预检、不轮转**。
+适用：`ingest` / `optimize` / `migrate` / `index` / 删除、归档、改名 / 实施修复的 lint / 其他产生了文件变更并要写最终日志的工作流。`query`、只读 lint/audit、`log status`、`log query` 与无文件变化的任务**不跑预检、不轮转**；`--defer` 任务也不在此列——预检与追加延后到 `/sync` 批次统一执行（见 §延后同步与队列合并）。
 
 先构造完整待追加文本（含前置分隔换行与末尾换行；一个任务只对应一条最终条目），再调用本 Skill 自带的固定只读脚本 `scripts/log-preflight.ps1`（默认阈值 2 MiB；投影超阈值或活动日志跨年即 `rotation_due=true`）：
 
@@ -502,9 +505,13 @@ missing_count / broken_count / duplicate_count ==  当次扫描结果
 8. `log.md` 追加一条最终记录（含 `AGENTS.md` / `CLAUDE.md` / `index.md` / frontmatter 四项 + 六变量 + `indexed_page_count` 变化/不变/漂移修正 标识）
 9. 写后自检（快校 awk + 精校固定脚本 [references/index_stat.py](references/index_stat.py)；统计行与健康行各只出现 1 次）
 
+**`--defer` 分支**：写命令带 `--defer` 参数时，第 3–6 步与第 8 步（index 增量修改、六变量精校、三处页脚同步、log.md 追加）整体延后——改为写一个 `logs/queue/` 队列片段（含现成 index 条目行与 log 条目全文，模板 [assets/queue-fragment.md](assets/queue-fragment.md)），片段写完即收尾；共享文件由 `/obsidian-llm-wiki sync` 在批次末尾统一完成。适用命令、完整 SOP 与异常处理见 [references/defer-sync.md](references/defer-sync.md)。
+
 ### 并行会话干扰防护（多会话同时维护同一 vault 时）
 
 并行会话会同时改 `index.md`、`log.md`、新建页面，统计与锚点因此漂移。写型任务全程遵循：
+
+0. **首选隔离（defer 模式）**：写命令带 `--defer` 时任务只写自己的页面与 `logs/queue/` 队列片段，完全不触碰 `index.md` / `log.md`（见 §延后同步与队列合并）——多会话/多运行时并行维护优先用它规避共享文件竞争；以下规则适用于不带 defer 的任务与 `/sync` 执行过程。
 
 1. **精校前快查漂移**：对比 `wiki/**/*.md` 文件数与上轮已知值；发现新投放文件 → 只报告并留给对应会话/用户，不代补录（missing 明细只是快照）。
 2. **页脚以最终扫描值为准**：校验期间每次发现文件数/条目变化，页脚按当次扫描值重新覆盖，绝不沿用上轮手算值递增。
@@ -519,6 +526,7 @@ missing_count / broken_count / duplicate_count ==  当次扫描结果
 |---|---|---|
 | `ingest` / `optimize` / `extract-thinking-frameworks` / `migrate` / `delete` / `query-归档` | **增量** | 在对应 `## <领域>` 章节追加/修改/删除一行；刷新顶部维护块 + 底部统计行 + 索引健康行 |
 | `/index` | **全量** | 完整扫描 `wiki/**/*.md`，重算后整文件重写；与增量互为补集 |
+| `/sync` | **队列合并** | 应用 `logs/queue/` 中各 `--defer` 片段：插入条目 + 统一精校与三处页脚 + 按序合并 log（见 §延后同步与队列合并） |
 | `/lint` | **不动 index**，只校验 | 见 §Index lint 校验规则 |
 
 **何时必须走全量（`/index`）**（增量无法修复时）：
@@ -565,6 +573,29 @@ missing_count / broken_count / duplicate_count ==  当次扫描结果
 - **I**：缺少索引健康行 → lint 报"缺索引健康行；按 §Index 底部统计与索引健康行 补齐"。
 - **J**：双入口 schema SHA-256 不等 → lint 报"AGENTS.md 与 CLAUDE.md 字节不一致；按 vault 契约同步两文件并验 SHA-256"。
 - **K**：用 `wiki_file_count` 代替 `indexed_page_count` 填入统计行 → lint 报"不得用 `wiki_file_count` 替 `indexed_page_count`；两者必须独立验证"。
+
+## 延后同步与队列合并（defer / sync）
+
+批量维护或多运行时并行时，写命令可带 `--defer` 参数把共享文件收尾（index.md 条目、六变量精校、三处页脚、log.md 追加）延后到批次末尾，由 `/obsidian-llm-wiki sync` 一次合并。页面级工作（frontmatter、正文、图片、sources、页面级验证）照常全部完成。完整 SOP 与异常处理见 [references/defer-sync.md](references/defer-sync.md)。
+
+### --defer 参数（写入型命令通用可选参数，紧跟命令名）
+
+- 用法：`/obsidian-llm-wiki <命令> --defer <原参数…>`；适用于 `ingest` / `optimize` / `enhance-wiki-content` / `update-raw-reference` / `extract-thinking-frameworks` / `migrate` / `delete`。
+- 带 `--defer` 时跳过：index.md 任何编辑、六变量精校、三处页脚同步、log.md 追加、log-preflight 预检。
+- 改为写一个队列片段 `logs/queue/<YYYYMMDD-HHMMSS>-<4位随机>-<动作>-<页面短名>.md`（模板 [assets/queue-fragment.md](assets/queue-fragment.md)）：元信息（task / date / page / section / summary）+ 现成 index 条目行 + 现成 log 条目全文——都在任务当下写好，摘要质量与增量模式一致。
+- 片段写完即视为任务收尾；defer 期间 index 统计滞后是正常态，以最近一次 `/sync` 后的页脚为准；lint / query 照常报告缺口，但不把队列中已有片段的页面当「待补录」处理。
+- 不带 `--defer` 时，收尾流程与既有 SOP 完全一致（默认路径不变）。
+
+### /obsidian-llm-wiki sync（队列合并，共享文件唯一写者）
+
+无位置参数：`sync`（合并）与 `sync --dry-run`（只列出片段与校验结果，零写入）。空队列运行 = 幂等收敛（仅按需刷新页脚统计），安全。概要：
+
+1. 运行 `scripts/flush_queue.py --vault-root <vault> --dry-run` 列出并校验全部片段（merged / skipped_duplicate / dropped_missing_page / invalid）；零片段则直接进入页脚收敛，不取锁。
+2. index 条目合并（agent 执行）：按片段 `section` 定位分区插入数据行（同名分区多处时报告按现序判断；分区不存在按规范新建；页面已有条目跳过；delete 片段移除数据行）。
+3. 运行 `references/index_stat.py` 精校 → 三处页脚同一次编辑同步（顶部维护块摘要 = 片段 summary 或 `同步索引：队列合并 N 条（…）`）→ 复验 `footer_match=true`。
+4. 对全部片段 log 条目 + `/sync` 自身最终记录跑一次 `log-preflight.ps1`（`rotation_due=true` 先轮转）；再运行 `scripts/flush_queue.py --vault-root <vault>` 完成按时间序追加、完整性验证（前缀 SHA-256 零改动 + 字节增量对账 + 标题全库唯一）与已合并片段单文件清理。
+5. `/sync` 自身最终 log 记录按常规 EOF 直追追加并验证；输出六变量 + 合并/跳过/丢弃清单。
+6. 锁：脚本取 `logs/queue/.sync.lock`（已存在且 <15 分钟 → 退出码 3 终止；过期单文件删除后重取）；两个会话不得刻意同时运行 `/sync`。
 
 ## 命令
 
@@ -660,6 +691,16 @@ missing_count / broken_count / duplicate_count ==  当次扫描结果
 
 **不变量**：本命令产物必须通过 §Index lint 校验规则 的所有检查。
 
+### /obsidian-llm-wiki sync
+
+defer 队列合并：把 `logs/queue/` 中各 `--defer` 任务写好的片段一次性合并进 `index.md` 与 `log.md`，是共享文件的**唯一写者**（增量 = 逐任务、全量 = `/index`、队列合并 = `/sync`，三者互为补集）。无位置参数；`sync --dry-run` 零写入。执行 SOP、锁与异常处理见 §延后同步与队列合并 与 [references/defer-sync.md](references/defer-sync.md)。
+
+1. `scripts/flush_queue.py --dry-run` 列片段并校验（零片段 → 空队列幂等收敛）
+2. index 条目合并（定位分区、查重、新建分区、delete 移除）
+3. `references/index_stat.py` 统一精校 → 三处页脚一次同步 → 复验 `footer_match=true`
+4. 一次 `log-preflight.ps1`（覆盖全部片段条目 + sync 自身记录）→ `scripts/flush_queue.py` 按序追加 log、验证完整性、单文件清理已合并片段
+5. `/sync` 自身最终 log 记录；输出六变量 + 合并/跳过/丢弃清单
+
 ### /obsidian-llm-wiki migrate
 
 一次性迁移助手，把已有 Obsidian 笔记迁到 LLM Wiki 模式。
@@ -689,6 +730,8 @@ Wiki 内容增强：`optimize` 的固定套路版。优化已有页面时**逐�
 
 - **形态 A（带 raw 来源）**：`/obsidian-llm-wiki enhance-wiki-content <wiki/<领域>/<页面>.md> <raw/<领域>/<资料名>/>` —— 媒体（图片/视频）分析以指定 raw 目录为唯一来源；页面涉及图片内容时**先建 image manifest 再分析**（§图片密集资料分析，含双向对账）。
 - **形态 B（无 raw 来源）**：`/obsidian-llm-wiki enhance-wiki-content <wiki/<领域>/<页面>.md>` —— 仅基于页面已有文字与既有嵌入提炼，不新增媒体分析。
+
+**`--defer` 支持（批量/并行维护首选）**：`/obsidian-llm-wiki enhance-wiki-content --defer <wiki页面.md> [raw目录]`——本命令是最高频写命令，defer 优先支持；收尾改为写一个 `logs/queue/` 队列片段（含现成 index 条目行与 log 条目全文），index/log 由批次末尾 `/sync` 统一完成（见 §延后同步与队列合并）。
 
 执行流程：
 
