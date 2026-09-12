@@ -124,16 +124,19 @@ claude mcp add -s user zai-mcp-server --env Z_AI_API_KEY=YOUR_API_KEY -- npx -y 
 │   ├── book-note.md      # 读书笔记
 │   ├── meeting-note.md   # 会议记录
 │   ├── tool-page.md      # 工具页面
-│   └── log-active.md     # 新活动日志模板（仅在一次成功分卷轮转后使用）
+│   ├── log-active.md     # 新活动日志模板（仅在一次成功分卷轮转后使用）
+│   └── queue-fragment.md # defer 队列片段模板（--defer 任务专用）
 ├── scripts/
 │   ├── log-preflight.ps1 # 固定只读日志预检（2 MiB 阈值 + 跨年判定；Git Bash 经 powershell.exe 调用，中文文本走 -PendingAppendB64）
-│   └── preprocess_pdf.py # 固定 PDF 预处理（pypdf/PyMuPDF 双提取器 + 逐页乱码质量判定 + created_files.json 清理清单）
+│   ├── preprocess_pdf.py # 固定 PDF 预处理（pypdf/PyMuPDF 双提取器 + 逐页乱码质量判定 + created_files.json 清理清单）
+│   └── flush_queue.py    # defer 队列合并脚本（/sync 机械执行部分：锁、按序追加 log、完整性验证、片段清理）
 └── references/
     ├── schema.md              # AGENTS.md / CLAUDE.md 通用模板（供新项目初始化）
     ├── index_stat.py          # index.md 六变量精校脚本
     ├── log-rotation.md        # 日志分卷/轮转参考（log status / query / rotate）
     ├── pdf-preprocessing.md   # PDF 预处理协议（固定入口、质量判定、视觉降级）
-    └── temp-cleanup.md        # 任务临时目录清理协议（created_files.json 驱动）
+    ├── temp-cleanup.md        # 任务临时目录清理协议（created_files.json 驱动）
+    └── defer-sync.md          # 延后同步（--defer）与队列合并（/sync）完整 SOP
 ```
 
 ### Obsidian 仓库结构
@@ -171,6 +174,21 @@ claude mcp add -s user zai-mcp-server --env Z_AI_API_KEY=YOUR_API_KEY -- npx -y 
 | `/obsidian-llm-wiki log <mode>` | 日志工作流：`status`（只读预检详情）/ `query "<条件>"`（活动日志与历史分卷有界检索）/ `rotate now\|year\|size\|auto`（整文件移动式分卷轮转，见 `references/log-rotation.md`）。写入型任务追加 `log.md` 前自动跑 2 MiB 固定预检 |
 | `/obsidian-llm-wiki update-raw-reference <页面.md> <raw目录>` | 媒体引用修复：把页面图片/视频嵌入一站式改写到指定 raw 目录的全路径嵌入格式 `![[raw/…]]`；frontmatter 与索引条目**缺才补、有则只验证** |
 | `/obsidian-llm-wiki enhance-wiki-content <页面.md> [raw目录]` | Wiki 内容增强：逐字保留正文与图片/视频嵌入顺序，文末统一追加六节（资料总结/洞见/方法论提炼/最佳实践/金句精选/关联 Wiki 连接）；带 raw 目录时先建 image manifest 再分析；frontmatter 与索引条目**缺才补、有则只验证** |
+| `/obsidian-llm-wiki sync` | defer 队列合并：把 `logs/queue/` 中各 `--defer` 任务写好的片段一次性合并进 `index.md` 与 `log.md`（共享文件唯一写者；空队列运行 = 幂等收敛）。与增量（各写命令）/ 全量（`/index`）互为补集 |
+
+### 并行维护：--defer 与 sync（延后同步）
+
+多任务批量处理或 ZCode / Codex 同时维护同一 vault 时，每个写命令收尾的 `index.md` / `log.md` 更新会把并行会话串行化并互踩。`--defer` 参数把共享文件收尾延后到批次末尾一次合并：
+
+```bash
+/obsidian-llm-wiki enhance-wiki-content --defer wiki/<领域>/<页面>.md [raw目录]   # 最高频写命令，优先支持
+/obsidian-llm-wiki optimize --defer wiki/<领域>/<页面>.md
+```
+
+- 带 `--defer` 时任务照常完成页面级全部工作，只额外写一个队列片段 `logs/queue/<时间戳>-<随机>-<动作>-<页面短名>.md`（含现成 index 条目行与 log 条目全文），**不触碰** `index.md` / `log.md`；片段写完即收尾。
+- 批次结束后由任一空闲会话运行 `/obsidian-llm-wiki sync`：插入 index 条目 → 统一精校六变量 → 三处页脚一次同步 → 一次预检后按序合并 log 条目 → 清理已合并片段；锁文件 `logs/queue/.sync.lock` 兜底双合并。
+- `/obsidian-llm-wiki sync --dry-run` 只列出片段与校验结果，零写入；空队列运行 = 幂等收敛。
+- defer 期间 index 统计滞后是正常态，以最近一次 `/sync` 后的页脚为准。完整 SOP 见 SKILL.md「延后同步与队列合并」与 `references/defer-sync.md`。
 
 ### update-raw-reference：媒体引用修复
 
