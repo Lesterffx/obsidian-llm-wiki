@@ -63,7 +63,7 @@ description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wi
 - **不虚构**来源、数据、引用或验证结果。
 - 不修改 Windows 系统 PATH，不自动安装/卸载/重装 Python，不调用用户目录下的 Python；不通过 PowerShell 管道向 Python 传递中文路径。
 - 图片嵌入默认短文件名 `![[文件名.png]]`（Obsidian 全库自动解析）；通用易重名文件名（如 `image-001.png`）或 vault schema 明确要求时用全路径 `![[raw/…]]`，防跨目录误解析。
-- **图片视觉未识别时必须如实标注**（视觉未识别 / 基于正文非图像识别），绝不依文件名或上下文虚构图中文字、人物、数字、颜色。
+- **图片/视频等媒体视觉未识别时必须如实标注**（视觉未识别 / 基于正文非图像识别），绝不依文件名或上下文虚构图中/片中文字、人物、数字、颜色与画面内容。
 - **`log.md` 大文件（超 `Read` 上限）追加用 EOF 直追**（bash heredoc / `Add-Content -LiteralPath`），不为追加而整读。
 - **任务临时文件自动清理**：杂项中转/对账临时文件只放系统临时目录（Git Bash `/tmp`，即 Windows `%TEMP%`，如 `C:/Users/<用户名>/AppData/Local/Temp/`）；Skill 管理的任务产物（如 PDF 预处理中间产物）统一放任务目录 `<vault-root>/tmp/obsidian-llm-wiki/<task-id>/`；两者均禁止写入 `raw/`、`wiki/` 或 vault 其他位置。优先用命令内变量、命令替换与进程替换（如 `diff <(...) <(...)`）内联完成，不落盘；确需落盘时，任务收尾按 [references/temp-cleanup.md](references/temp-cleanup.md) 自动清理，无需用户确认（若运行时配置了命令守卫，tmp/temp 类目录下的单文件 `rm` 与单路径非递归删除可配置为免审批放行——后者是空任务目录窄例外的唯一删除方式；目录级与递归删除仍应直接拦截）；系统临时目录与任务目录均不得残留任务临时文件。
 
@@ -140,7 +140,7 @@ PYTHONUTF8=1 PYTHONIOENCODING=utf-8 \
   --input "<PDF 绝对路径>" --vault-root "<知识库绝对路径>" --task-id "<时间戳-安全任务标识>"
 ```
 
-- 产物只进任务目录 `<vault-root>/tmp/obsidian-llm-wiki/<task-id>/`；`task-id` 运行前必须不存在（脚本拒绝覆盖）；`requires_visual` 页按「运行时与网关适配」三级视觉通道读图。
+- 产物只进任务目录 `<vault-root>/tmp/obsidian-llm-wiki/<task-id>/`；`task-id` 运行前必须不存在（脚本拒绝覆盖）；`requires_visual` 页按「运行时与网关适配」媒体通道（图片/视频）读图。
 - **清理触发**：成功与可控失败的任务，都要在构建最终日志与最终回复前按 [references/temp-cleanup.md](references/temp-cleanup.md) 清理：先逐个单文件删除登记产物，再按 `created_directories` 最深优先删除空任务目录（窄例外单路径非递归 `Remove-Item -LiteralPath`），工作容器空则条件删除；最终汇报生成数/删除数/文件残留数/目录残留数/任务根状态/容器状态。
 
 **`.venv` 职责**（确定性、可重复）：
@@ -157,20 +157,22 @@ PYTHONUTF8=1 PYTHONIOENCODING=utf-8 \
 
 > PDF 依赖（`pypdf`、`PyMuPDF`）以项目 `.venv` 为准；缺依赖且用户未授权安装时，PDF 用 Read 的 `pages` 参数直读降级。DOCX/PPTX/XLSX 项目脚本是否就位、依赖是否安装，仍以项目 schema（CLAUDE.md 的「运行环境」章节）为准。
 
-## 图片密集资料分析（Image-Heavy Source Analysis）
+## 媒体密集资料分析（Media-Heavy Source Analysis）
 
-适用范围：raw 图片目录、截图课程、PPT 截图导出、wiki 页面中以 `![[...]]` 引用 raw 图片的页面、以及从 PDF/DOCX/PPTX 中抽取出页面或图片的资料。
+适用范围：raw 图片/视频目录、截图课程、PPT 截图导出、wiki 页面中以 `![[...]]` 引用 raw 图片或视频（mp4/mov/webm/m4v 等）的页面、以及从 PDF/DOCX/PPTX 中抽取出页面或图片的资料。
 
-1. **先建 image manifest，再分析**：
-   - 对 wiki 页面：按**文档顺序**提取每个 `![[...]]` 嵌入，解析短文件名时优先用页面 `sources` 声明的 raw 目录。
-   - 对 raw-only 图片目录：按自然文件名顺序处理。
-   - 对 PDF/DOCX/PPTX 源：先用 `.venv` 检查文本、内嵌媒体、page/slide 顺序与文档元数据，再决定如何把图片分配到批次。
+1. **先建 media manifest（沿用 image manifest 机制），再分析**：
+   - 对 wiki 页面：按**文档顺序**提取每个 `![[...]]` 嵌入——图片与视频同为媒体条目，视频条目附文件大小（`ls` 可得，时长可选）；解析短文件名时优先用页面 `sources` 声明的 raw 目录。
+   - 对 raw-only 媒体目录：按自然文件名顺序处理。
+   - 对 PDF/DOCX/PPTX 源：先用 `.venv` 检查文本、内嵌媒体、page/slide 顺序与文档元数据，再决定如何把媒体分配到批次。
    - 若 `sources` 为空或不完整：按精确文件名全库搜索，报告未解析或歧义匹配。
    - **双向对账**：除嵌入→文件（唯一性/缺失/重名）外，还须做**文件→嵌入反查**——sources 目录中未被页面嵌入的文件逐张定性：先 MD5 比对时间近邻判断是否同图重复保存，再读图判定是 同题另拍 / 解析续页 / 独立题目；结论写入页面边界说明并留用户处置（raw 只读，不代移动/删除）。未嵌入 ≠ 可删，也可能藏着归属错目录的嵌入图。
-   - **视觉通道探测**：建 manifest 后、派发读图前，先按 §运行时与网关适配 做视觉通道顺序探测（`Read` 单图 → 视觉理解 MCP（如 zai-mcp-server）单图）；两条通道都不可用才走降级（manifest 照建，视觉字段标"视觉未识别"，基于已有文字提炼）。
-2. **保留顺序**：已有 wiki 嵌入顺序是权威顺序；raw-only 图片集用自然文件名顺序；优化时不擅自重排嵌入，除非用户明确要求。
-3. **覆盖风险检测（报告而不猜测）**：检测重名文件、缺失文件、非图片嵌入、位于 declared `sources` 之外的图片；**不要猜测**哪个重名图是意图所指——报告出来让用户/主 agent 决定。嵌入唯一命中其他 raw 目录（跨目录图片/同图双存）时：短文件名全库唯一即可正常解析、不算断链，按 vault 先例在 frontmatter `sources` **登记多个目录**，**不移动 raw 文件**。
-4. **分析可追溯**：中间笔记放工作上下文或最终回复，**不写 `raw/`**；写 wiki 内容时用文件名 + manifest index 标识每张图。
+   - **媒体通道探测**：建 manifest 后、派发读取前，先按 §运行时与网关适配 做媒体通道顺序探测——图片：`Read` 单图 → 视觉理解 MCP（如 zai-mcp-server）单图；视频：`Read` 最小代表视频试读 → 视觉理解 MCP `analyze_video` 兜底；某类媒体两条链都不可用才对该类走降级（manifest 照建，视觉字段标"视觉未识别"，基于已有文字提炼）。**禁止在建 manifest 阶段就把视频预判为"无法识别"——必须先探测再下结论。**
+2. **保留顺序**：已有 wiki 嵌入顺序是权威顺序；raw-only 媒体集用自然文件名顺序；优化时不擅自重排嵌入，除非用户明确要求。
+3. **覆盖风险检测（报告而不猜测）**：检测重名文件、缺失文件、位于 declared `sources` 之外的媒体；**不要猜测**哪个重名文件是意图所指——报告出来让用户/主 agent 决定。嵌入唯一命中其他 raw 目录（跨目录媒体/同图双存）时：短文件名全库唯一即可正常解析、不算断链，按 vault 先例在 frontmatter `sources` **登记多个目录**，**不移动 raw 文件**。
+4. **分析可追溯**：中间笔记放工作上下文或最终回复，**不写 `raw/`**；写 wiki 内容时用文件名 + manifest index 标识每个媒体条目。
+
+**视频条目批量策略**：视频不按图片张数计档——默认随 manifest 自动探测读取（页面视频通常少量，主线程逐个直读即可）；单页视频 >3 个或单文件体积明显偏大时，参照 §Subagent 批量分析 的波次机制拆批，或先与用户确认读取范围。
 
 ## Subagent 批量分析（Claude Code 适配）
 
@@ -202,6 +204,8 @@ PYTHONUTF8=1 PYTHONIOENCODING=utf-8 \
 - **整卷/错题集类页面**：题库截图流手写合集页（整卷页、错题本）的双向对账表、作答统计、错题清单与跨页互证模板见 [references/exam-collection-playbook.md](references/exam-collection-playbook.md)。
 
 > 这是对旧版"100+ 首轮 6 批后追加"粗糙表述的规范化：大批量（100–300 张）多 Agents 并行读图能力**保留并增强**为一等能力，对齐 Codex 版 `execute in waves` 思想。
+
+**视频批次**：subagent 的 `Read` 与主线程一样可直接读视频（MP4/MOV/WEBM 等，受运行时视频输入上限约束）；九字段契约对视频条目同样适用（`visible_text` = 画面文字/字幕，`diagrams_flows_ui` = 画面 UI/流程，可另记关键画面时间点）。视频通常数量少，主线程逐个直读即可；>3 个才按上表波次拆批。
 
 **派发约定**：
 - 给每个 subagent 一段 **bounded manifest slice**：绝对图片路径 + 稳定 manifest index（Claude Code 侧通过 Agent 工具 prompt 传入；Codex 侧用 `items` 的 `local_image` 条目）。
@@ -237,7 +241,7 @@ PYTHONUTF8=1 PYTHONIOENCODING=utf-8 \
 
 ## 运行时与网关适配（视觉通道 + 读图降级 + 大文件日志）
 
-本 Skill 默认假设主 agent 与只读 subagent 的 `Read` 能正常解析图片像素。但**第三方网关（如智谱 GLM、MiniMax 等兼容 Anthropic 协议的网关）的多模态下推链路未必启用**：实测在某些网关下，`Read` 图片只返回"文件已上传至 CDN"的文本回执（含一个 URL），**不向模型返回视觉内容**——主 agent 与 subagent 都"看不见"图。此时**视觉理解 MCP**（如智谱 `zai-mcp-server`，接入 GLM-4.6V）可作为独立于网关的视觉通道。本节规定三级视觉通道（`Read` → 视觉 MCP → 降级）的探测与降级流程，避免空转、避免虚构。
+本 Skill 默认假设主 agent 与只读 subagent 的 `Read` 能正常解析图片像素。但**第三方网关（如智谱 GLM、MiniMax 等兼容 Anthropic 协议的网关）的多模态下推链路未必启用**：实测在某些网关下，`Read` 图片只返回"文件已上传至 CDN"的文本回执（含一个 URL），**不向模型返回视觉内容**——主 agent 与 subagent 都"看不见"图。此时**视觉理解 MCP**（如智谱 `zai-mcp-server`，接入 GLM-4.6V）可作为独立于网关的视觉通道。图片之外，`Read` 在支持的运行时还可直接读视频（MP4/MOV/WEBM 等，受视频输入上限约束）。本节规定图片与视频两条媒体通道（`Read` → 视觉 MCP → 降级）的探测与降级流程，避免空转、避免虚构。
 
 ### 视觉理解 MCP 通道（zai-mcp-server）
 
@@ -254,35 +258,42 @@ PYTHONUTF8=1 PYTHONIOENCODING=utf-8 \
 | `diagnose_error_screenshot` | 错误弹窗/堆栈/日志截图诊断 | wiki 场景少用 |
 | `ui_to_artifact` | UI 截图转代码/提示词/设计规范 | wiki 场景少用 |
 | `ui_diff_check` | 对比两张 UI 截图差异 | 校验场景 |
-| `analyze_video` | 视频解析；本地文件 ≤8MB，MP4/MOV/M4V | 拓展能力（如视频类领域） |
+| `analyze_video` | 视频解析兜底（`Read` 视频通道不可用时）；本地文件 ≤8MB，MP4/MOV/M4V | 视频条目全字段（同九字段契约） |
 
 **调用约定**：
 
-- `image_source` 传**本地绝对路径**（中文与空格路径直接传，不走 PowerShell 管道）；单图单工具调用，逐张按 manifest index 对账。
+- `image_source` 传**本地绝对路径**（中文与空格路径直接传，不走 PowerShell 管道）；单图单工具调用，逐张按 manifest index 对账。`analyze_video` 同样传本地绝对路径，单视频单调用，按 manifest index 对账。
 - 按图型选工具：常规截图/扫描件用 `analyze_image` 兜底；文字密集图优先 `extract_text_from_screenshot`；架构/流程图优先 `understand_technical_diagram`；统计图表优先 `analyze_data_visualization`。
 - **隐私边界**：视觉 MCP 是云端通道，图片内容会上送智谱服务器处理；涉及敏感资料时先经用户确认再走此通道。
 - **subagent 授权**：要让只读 subagent（如 `image-reader`）在此通道下读图，项目需在其 agent 定义的 `tools` 中显式授予对应 `mcp__zai-mcp-server__*` 工具；未授予时由主线程分批逐张调用。改用 `Explore` 等未授予 MCP 工具的类型时同样回退主线程逐张调用，并按 manifest index 对账。
 
-### 图片读取能力探测（读图前必做一次）
+### 媒体读取能力探测（读图/读视频前必做一次）
 
-- **顺序探测**（用同一张代表性图，优先概念图、含文字最多的图，如"X VS Y"对比图）：
+- **图片顺序探测**（用同一张代表性图，优先概念图、含文字最多的图，如"X VS Y"对比图）：
   1. **`Read` 单图探测**：返回内容含图片视觉信息 → **Read 视觉通道可用**，走正常 subagent 批量分析（§Subagent 批量分析）。
   2. **视觉 MCP 单图探测**：`Read` 仅返回 `... has been uploaded to CDN and is available at: https://...` 文本回执时，调 `mcp__zai-mcp-server__analyze_image` 并把该图**本地绝对路径**传入 `image_source`：返回真实视觉内容 → **视觉 MCP 通道可用**，按 §视觉理解 MCP 通道 的调用约定读图。
   3. 两级探测都失败（MCP 未配置 / 调用报错 / 无视觉内容）→ 进入降级流程。
+- **视频顺序探测**（用 manifest 中最小的一个代表性视频试读；**探测前不得预判视频不可读**）：
+  1. **`Read` 单视频探测**：返回带时间戳的抽帧画面 → **Read 视频通道可用**，逐个直读其余视频（单个文件超限报错时仅该条目走降级，不影响其他视频）。
+  2. **视觉 MCP 单视频探测**：`Read` 失败或仅返回回执时（典型为 Claude Code + 第三方网关场景），调 `mcp__zai-mcp-server__analyze_video`（本地文件 ≤8MB，MP4/MOV/M4V）并传**本地绝对路径**：返回真实视频解析 → **视觉 MCP 视频通道可用**。
+  3. 两级探测都失败 → 该视频走 §视觉/视频不可用时的降级流程，标注"视频视觉未识别"。
 - **通道能力矩阵**（集中维护，验证后更新；顺序探测机制使其自纠正，矩阵过期也不影响判断）。`Read` 视觉可用性由**运行时 × 网关/模型**两维共同决定，不单看网关：探测失败多为该组合的多模态下推链路未启用，而非模型能力问题（GLM 本身是多模态模型）——同一模型在不同运行时可能结论相反：
   - 官方 Anthropic API：`Read` 视觉可用（默认）。
   - Claude Code + 智谱 GLM 网关：`Read` **已验证不可用**（仅返回 CDN URL 回执，无视觉内容；主线程与 subagent 同失效）；`zai-mcp-server` 视觉 MCP **已验证可用**（2026-08-19 本地实测：`analyze_image` 以含中文与空格的本地绝对路径成功返回完整视觉描述与文字转录）。
   - ZCode 运行时（GLM 模型）：`Read` 视觉**已验证可用**（2026-09-05 实测，主线程与 Explore subagent 一致，可直接读本地中文路径图片）；与上一行不矛盾——可用性按"运行时 × 网关"组合记录。
   - `4_5v_mcp`（GLM Coding Plan 服务端内置的 image_analysis 通道）：仅支持远程 URL，本地 raw 图片不适用。
   - MiniMax 网关：**未验证**（待测；若在此网关下，先做顺序探测，把结果回写本节）。
-- 探测结果写入当次 `log.md` 条目（视觉通道：Read 可用 / 视觉 MCP 可用 / 均不可用 + 运行时名 + 网关/模型名）。
+  - **视频**：ZCode 运行时（GLM 模型）：`Read` 视频**已验证可用**（2026-09-21 实测：MP4 约 1.8MB / 7 秒返回 9 帧带时间戳抽帧画面；更大文件上限未测，超限报错形态待积累）。
+  - **视频**：Claude Code + 智谱 GLM 网关：`Read` 视频**未验证**（图片已证不可用，大概率同失效——先探测；兜底 `zai-mcp-server` `analyze_video`，本地 ≤8MB，MP4/MOV/M4V）。
+- **超限/长视频降级**：`Read` 与视觉 MCP 均因体积/时长失败的条目，优先改用运行时可用的视频工具抽帧或转写（如 ZCode 的 video2code / video-agent-kit 插件提供的帧采样与语音转写工具）；这些工具也不可用时，才标注"视频视觉未识别"并把"待视频通道可用后补精确转写"记为未决项。
+- 探测结果写入当次 `log.md` 条目（视觉/视频通道：Read 可用 / 视觉 MCP 可用 / 均不可用 + 运行时名 + 网关/模型名）。
 
-### 视觉不可用时的降级流程
+### 视觉/视频不可用时的降级流程
 
-**两条视觉通道（`Read` 与视觉 MCP）都不可用时**才进入降级。降级**不等于放弃**：image manifest 的建立、文件名/顺序/来源匹配、缺失与重名检测都是**文件系统层**操作，不需要视觉。降级按六步：
+**两条视觉通道（`Read` 与视觉 MCP）对某类媒体（图片或视频）都不可用时**，才对该类媒体进入降级（另一类媒体照常走通道）。降级**不等于放弃**：media manifest 的建立、文件名/顺序/来源匹配、缺失与重名检测都是**文件系统层**操作，不需要视觉。降级按六步：
 
-1. **照常建 image manifest**（§图片密集资料分析）：按文档顺序提取 `![[...]]`、解析短文件名、与 raw 目录对账、检测重名/缺失/越界。manifest 完整性与视觉无关。
-2. **视觉识别字段全部标"视觉未识别"**：`visible_text` / `key_points` / `diagrams_flows_ui` / `insights` 等"需要看图"的字段不填、不猜，统一标注"视觉未识别（当前网关多模态通道与视觉 MCP 均不可用）"。
+1. **照常建 media manifest**（§媒体密集资料分析）：按文档顺序提取 `![[...]]`、解析短文件名、与 raw 目录对账、检测重名/缺失/越界。manifest 完整性与视觉无关。
+2. **视觉识别字段全部标"视觉未识别"**：`visible_text` / `key_points` / `diagrams_flows_ui` / `insights` 等"需要看图/看片"的字段不填、不猜，统一标注——图片条目写"视觉未识别（当前网关多模态通道与视觉 MCP 均不可用）"，视频条目写"视频视觉未识别"并注明原因（通道不可用 / 文件超限 / `--no-video` 跳过）。
 3. **基于已有文字做高维度提炼**：页面已有逐字稿/正文/结构表/金句等文字（典型如飞书 doc 抓取页）时，完全可基于这些文字完成"资料总结/洞见/方法论提炼/最佳实践/金句精选"——它们不依赖图片视觉。
 4. **概念图概念补充须标注来源**：某张概念图（如"平等 VS 公正"对比图）承载的概念若在正文已有文字阐释，可引用正文作补充，但必须明确写"基于正文，非图像识别"。
 5. **不重复空转**：视觉不可用时**不再**派发读图 subagent、也不再逐张调用视觉 MCP（派了也是空回执或报错）；把"图片视觉内容待多模态通道或视觉 MCP 恢复后补录精确转写"记为**未决项**，写进 `log.md` 与页面"图片内容解析"节。
@@ -586,6 +597,13 @@ missing_count / broken_count / duplicate_count ==  当次扫描结果
 - 片段写完即视为任务收尾；defer 期间 index 统计滞后是正常态，以最近一次 `/sync` 后的页脚为准；lint / query 照常报告缺口，但不把队列中已有片段的页面当「待补录」处理。
 - 不带 `--defer` 时，收尾流程与既有 SOP 完全一致（默认路径不变）。
 
+### --no-video 参数（媒体分析型命令通用可选参数）
+
+- 用法：`/obsidian-llm-wiki <命令> --no-video <原参数…>`；适用于做媒体分析的 `ingest` / `optimize` / `enhance-wiki-content`。
+- 带该参数时：跳过视频读取与视频通道探测，media manifest 照建（视频条目标注"视觉未识别（--no-video 跳过）"），仅分析图片与文字。适用于省 token、隐私评估，或视频通道明确不可用且无需兜底的场景。
+- 不带该参数时（默认）：视频是 media manifest 的一等条目，自动走 §运行时与网关适配 的视频顺序探测并读取；超限/失败条目自动降级标注，不影响其他媒体。
+- 可与 `--defer` 组合使用。
+
 ### /obsidian-llm-wiki sync（队列合并，共享文件唯一写者）
 
 无位置参数：`sync`（合并）与 `sync --dry-run`（只列出片段与校验结果，零写入）。空队列运行 = 幂等收敛（仅按需刷新页脚统计），安全。概要：
@@ -605,7 +623,7 @@ missing_count / broken_count / duplicate_count ==  当次扫描结果
 
 1. 确认来源文件在 `raw/` 对应目录中
 2. **文档预处理**（条件性）：PDF 必须走 Skill 固定脚本 `scripts/preprocess_pdf.py`（先读 references/pdf-preprocessing.md，见「文档预处理运行时」），收尾按 temp-cleanup.md 清理任务目录；DOCX/PPTX/XLSX 或大量图片在 `scripts/` 就位时用 `.venv` 预处理并建立 manifest；PDF 依赖未就位时用 Read 的 `pages` 参数直读
-3. **图片密集分析**：图片密集资料按 image manifest 分析；先做视觉通道顺序探测（`Read` → 视觉 MCP，见「运行时与网关适配」），超过 10 张派只读 subagent 并行分析，100–300 张以波次推进（见「Subagent 批量分析」）
+3. **媒体密集分析**：图片/视频资料按 media manifest 分析（§媒体密集资料分析）；先做媒体通道顺序探测（图片：`Read` → 视觉 MCP；视频：`Read` → 视觉 MCP `analyze_video`，见「运行时与网关适配」），图片超过 10 张派只读 subagent 并行分析，100–300 张以波次推进（见「Subagent 批量分析」）；视频默认随 manifest 自动探测读取，带 `--no-video` 时跳过
 4. **核对 manifest**：阅读/分析时核对覆盖率、顺序、缺失、重名，异常先报告
 5. 与用户讨论关键要点
 6. 在 `wiki/` 对应目录创建摘要页面：
@@ -648,7 +666,7 @@ missing_count / broken_count / duplicate_count ==  当次扫描结果
 优化已有 wiki 页面（结构、表达、交叉引用），**不删除已有图片嵌入**，不破坏已有 wiki 链接。
 
 1. 读目标页面，读其 `sources` 对应的 raw 资料
-2. 页面图片 ≤10 张：读全部图片后优化；>10 张：先确认用户是否读全部，或仅基于已有文字优化
+2. 页面媒体 ≤10 个（图片+视频）：读全部后优化；>10 个：先确认用户是否读全部，或仅基于已有文字优化。视频默认随 manifest 自动探测读取（超限走降级）；带 `--no-video` 时跳过视频，仅基于图片与文字优化
 3. 优化 frontmatter（补缺失字段、更新 `updated`；frontmatter 修复是结构例外，append-only 体优化时仍可置正文前）、结构、表达
 4. 追加内容（如需）插在 `## 相关` 之前；图片分析结果整理进六节
 5. 检查并补充缺失的交叉引用
@@ -728,7 +746,7 @@ Wiki 内容增强：`optimize` 的固定套路版。优化已有页面时**逐�
 
 **两种调用形态**：
 
-- **形态 A（带 raw 来源）**：`/obsidian-llm-wiki enhance-wiki-content <wiki/<领域>/<页面>.md> <raw/<领域>/<资料名>/>` —— 媒体（图片/视频）分析以指定 raw 目录为唯一来源；页面涉及图片内容时**先建 image manifest 再分析**（§图片密集资料分析，含双向对账）。
+- **形态 A（带 raw 来源）**：`/obsidian-llm-wiki enhance-wiki-content <wiki/<领域>/<页面>.md> <raw/<领域>/<资料名>/>` —— 媒体（图片/视频）分析以指定 raw 目录为唯一来源；页面涉及图片/视频内容时**先建 media manifest 再分析**（§媒体密集资料分析，含双向对账与媒体通道探测）。
 - **形态 B（无 raw 来源）**：`/obsidian-llm-wiki enhance-wiki-content <wiki/<领域>/<页面>.md>` —— 仅基于页面已有文字与既有嵌入提炼，不新增媒体分析。
 
 **`--defer` 支持（批量/并行维护首选）**：`/obsidian-llm-wiki enhance-wiki-content --defer <wiki页面.md> [raw目录]`——本命令是最高频写命令，defer 优先支持；收尾改为写一个 `logs/queue/` 队列片段（含现成 index 条目行与 log 条目全文），index/log 由批次末尾 `/sync` 统一完成（见 §延后同步与队列合并）。
@@ -737,7 +755,7 @@ Wiki 内容增强：`optimize` 的固定套路版。优化已有页面时**逐�
 
 1. **参数校验（硬门槛，不合法立即报错、零写入）**：参数 1 必须是 `wiki/` 下真实存在的 `.md` 文件；形态 A 的参数 2 必须是 `raw/` 下真实存在的目录。两个名称通常相同（页面 stem ↔ raw 目录名）但**不强制**。
 2. **只读清点**：读页面全文与章节结构；提取全部 `![[...]]` 嵌入。已有正文与嵌入顺序是权威顺序，不重排、不删除、不改写；发现问题（重名/缺失/越界）先报告，不猜测。
-3. **媒体分析（仅形态 A，条件性）**：raw 目录含图片/视频时先建 image manifest，做视觉通道顺序探测后读图（≤10 张主线程直读，>10 张按 §Subagent 批量分析 派只读 subagent）；识别结果只作追加章节的依据，模糊或不确定内容显式标注，绝不虚构。形态 B 不派读图批次、不新增媒体分析。
+3. **媒体分析（仅形态 A，条件性）**：raw 目录含图片/视频时先建 media manifest，做媒体通道顺序探测后读取（图片 ≤10 张主线程直读，>10 张按 §Subagent 批量分析 派只读 subagent；视频默认自动探测读取，超限/失败条目走降级）；识别结果只作追加章节的依据，模糊或不确定内容显式标注，绝不虚构。带 `--no-video` 时跳过视频读取与探测，视频条目标注"视觉未识别（--no-video 跳过）"。形态 B 不派读取批次、不新增媒体分析。
 4. **末尾追加（append-only）**：把六节**追加在现有正文最后面**（既有 `## 相关` / `## 来源` 等收尾节之后；与既有同名节并存时不合并、保持追加位）；`关联 Wiki 连接` 节列 `[[页面标题]]` 链接，创建链接前确认目标页面存在，避免制造断链，不确定的概念放"待扩展"不伪装成链接；既有正文逐字不动。
 5. **frontmatter（缺才补、有则只验证）**：页面无 frontmatter 时按 §Frontmatter 与 Tag 规范化 补齐七字段（结构性例外，可置于正文前）；已存在则只校验、不改动，`updated` 仅在发生实质追加时按全局规则刷新。
 6. **补录索引（缺才补、有则只验证）**：页面在 `index.md` 对应分区无条目时按 §Index Metadata And Statistics 补录（`indexed_page_count` +1，操作摘要 = `同步索引：补录既有页面 <页面名>`），顶部维护块 + 底部统计行 + 索引健康行同一次编辑，重跑精校确认 `footer_match=true`；已有条目则只验证链接可解析，跳过。
@@ -819,7 +837,7 @@ Wiki 内容增强：`optimize` 的固定套路版。优化已有页面时**逐�
 - 所有路径和领域从项目 schema（`AGENTS.md` / `CLAUDE.md`）读取，不硬编码
 - **双入口 schema 字节一致**：声明契约时 `AGENTS.md` 与 `CLAUDE.md` 必须字节相同；结构变更同步两文件并验 SHA-256
 - 派出的 subagent 只读，不修改 raw/wiki/index/log/schema/.claude
-- 图片重名/缺失/无法定位一律先报告，不猜测
+- 媒体（图片/视频）重名、缺失、无法定位一律先报告，不猜测
 - **不虚构**来源、数据、引用或验证结果
 - 中文路径与带空格路径用 `-LiteralPath` 或显式参数，不走 PowerShell 管道；不修改 PATH、不重装 Python、不调用户目录 Python
 - `log.md` 条目至少含：日期与任务名 / 增改删文件 / 是否检查 `AGENTS.md` + `CLAUDE.md` / 是否检查 frontmatter + 图片嵌入 + `index.md` + 统计 / 关键验证结果与未决项；同一任务只追加一条最终记录；新条目用标准紧凑格式（必需：范围、变更、维护、验证；按需：资料、未决，见 [references/log-rotation.md](references/log-rotation.md)）
