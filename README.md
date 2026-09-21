@@ -97,11 +97,20 @@ claude mcp add -s user zai-mcp-server --env Z_AI_API_KEY=YOUR_API_KEY -- npx -y 
 - 该 MCP 是云端通道，图片内容会上送智谱服务器处理；敏感资料请自行评估是否走此通道。
 - 在 Claude Code 中使用 GLM Coding Plan 时，模型服务端已内置 `image_analysis` 工具（仅支持远程 URL）；要获得本地路径读图与全部 8 个工具，仍需安装此 MCP。
 
+## 媒体读取能力（图片 + 视频）
+
+Skill 的媒体分析管线对图片与视频一视同仁：`Read` 原生支持图片（PNG/JPG 等）与视频（MP4/MOV/WEBM 等，受运行时视频输入上限约束），页面与 raw 目录中的视频嵌入（如 `![[...mp4]]`）作为 manifest 一等条目自动处理。
+
+- **顺序探测**：读取前先探测通道——图片用一张代表性图试 `Read`；视频用 manifest 中最小的一个代表性视频试 `Read`，返回带时间戳的抽帧画面即通道可用。**探测前不得预判视频不可读。**
+- **兜底**：`Read` 不可用（典型为第三方网关多模态下推未启用）时，走 `zai-mcp-server` 视觉 MCP——图片 `analyze_image`，视频 `analyze_video`（本地文件 ≤8MB，MP4/MOV/M4V，传本地绝对路径）。
+- **超限/长视频降级**：单文件超限或视觉 MCP 均不可用时，优先用运行时可用的视频工具抽帧/转写（如 ZCode 的 video2code / video-agent-kit 插件）；都不可用才标注"视频视觉未识别"并记未决项，绝不依文件名虚构画面内容。
+- **`--no-video` 参数**：`ingest` / `optimize` / `enhance-wiki-content` 支持该参数——跳过视频读取与探测（视频条目标注"视觉未识别（--no-video 跳过）"），仅分析图片与文字；可与 `--defer` 组合。
+
 ## 限制条件
 
 - 绝不修改 `raw/` 下的文件（不可变层）
 - 覆盖已有 wiki 内容前须用户确认
-- 编辑 wiki 页面时绝不删除已有图片引用（`![[...]]`），编辑前后校验图片引用完整性
+- 编辑 wiki 页面时绝不删除已有图片/视频等媒体引用（`![[...]]`），编辑前后校验媒体引用完整性
 - `log.md` 条目 append-only，不删除已有条目
 - 保持中文为主要内容语言
 - 不破坏已有 wiki 链接
@@ -119,6 +128,11 @@ claude mcp add -s user zai-mcp-server --env Z_AI_API_KEY=YOUR_API_KEY -- npx -y 
 ~/.claude/skills/obsidian-llm-wiki/
 ├── SKILL.md              # Skill 主文件：命令定义、工作流、守则
 ├── README.md             # 本文件
+├── examples/             # 范例目录（新 vault 初始化参考，占位领域脱敏）
+│   ├── AGENTS.example.md          # schema 范例（重命名为 AGENTS.md / CLAUDE.md 使用）
+│   ├── index.example.md           # index.md 范例（六变量占位符页脚）
+│   ├── log.example.md             # log.md 范例（init 示例条目 + 模板条目）
+│   └── prompt-handbook.example.md # 实战指令手册范例（脱敏）
 ├── assets/               # 通用页面模板
 │   ├── wiki-page.md      # 通用 wiki 页面
 │   ├── book-note.md      # 读书笔记
@@ -298,7 +312,7 @@ SKILL.md 是 Skill 的核心配置，定义了：
 3. **页面规范** —— 每个 wiki 页面必须包含 YAML frontmatter（title、created、updated、domain、tags、sources、status）、inline tags、一句话摘要、正文、相关链接、来源引用
 4. **工作流守则** —— raw/ 只读、覆盖前确认、日志 append-only、从 CLAUDE.md 读取配置而非硬编码
 5. **index.md 同步契约** —— 顶部维护块、底部三变量统计行（`indexed_page_count` / `wiki_file_count` / `registered_domain_count`）与索引健康行（`missing_count` / `broken_count` / `duplicate_count`）的精确格式、六变量计数口径、强制维护遍历（Mandatory Maintenance Pass）与所有写命令的同步刷新策略（`## Index Metadata And Statistics`）
-6. **运行时与网关适配** —— 读图前的视觉通道顺序探测（`Read` 单图 → 视觉理解 MCP 单图；智谱 GLM 等网关下 `Read` 图片可能仅返回 CDN 回执而无视觉内容，此时 `zai-mcp-server` 视觉 MCP 作为兜底通道，配置见上文「视觉 MCP 配置」）、两条通道都不可用时的 6 步降级（manifest 照建、视觉字段标"视觉未识别"、基于已有文字提炼、不虚构）、以及大 `log.md` 的追加前固定预检（`scripts/log-preflight.ps1`，2 MiB 阈值与跨年判定）与 EOF 直追（bash heredoc / `Add-Content -LiteralPath`，不为追加而整读；轮转见 `references/log-rotation.md`）。详见 SKILL.md `## 运行时与网关适配`
+6. **运行时与网关适配** —— 读图/读视频前的媒体通道顺序探测（图片：`Read` 单图 → 视觉理解 MCP 单图；视频：`Read` 单视频 → 视觉理解 MCP `analyze_video`；智谱 GLM 等网关下 `Read` 图片可能仅返回 CDN 回执而无视觉内容，此时 `zai-mcp-server` 视觉 MCP 作为兜底通道，配置见上文「视觉 MCP 配置」）、两条通道都不可用时的 6 步降级（manifest 照建、视觉字段标"视觉未识别"、基于已有文字提炼、不虚构；超限/长视频优先运行时视频工具抽帧/转写）、以及大 `log.md` 的追加前固定预检（`scripts/log-preflight.ps1`，2 MiB 阈值与跨年判定）与 EOF 直追（bash heredoc / `Add-Content -LiteralPath`，不为追加而整读；轮转见 `references/log-rotation.md`）。详见 SKILL.md `## 运行时与网关适配`
 7. **PDF 固定预处理与任务临时目录清理** —— PDF 必须走 Skill 自带 `scripts/preprocess_pdf.py`（先读 `references/pdf-preprocessing.md`，禁止临时另写脚本），产物只进 `<vault>/tmp/obsidian-llm-wiki/<task-id>/`；任务收尾按 `references/temp-cleanup.md` 的 `created_files.json` 清单逐文件删除、最深优先删除空任务目录、容器空则条件删除，并汇报六项指标。详见 SKILL.md「文档预处理运行时」与上文「PDF 固定预处理与任务临时目录清理」
 
 ## 快速开始
