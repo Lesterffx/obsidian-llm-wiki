@@ -9,6 +9,7 @@ obsidian-llm-wiki defer 队列片段模板（--defer 任务专用）。
 <!-- page: <wiki/…/页面.md，vault 相对路径，必须以 wiki/ 开头> -->
 <!-- section: <## 领域 / 子分区> -->
 <!-- summary: <顶部维护块动作摘要，如 同步索引：补录既有页面 <页面名>> -->
+<!-- tag-sync: <可选；enhance 稀疏标签补齐时加注，如 "+3：type/知识、domain/AI、AI/智能体"；flush_queue.py 忽略此键，由 /sync agent 读取> -->
 
 <!-- index-entry -->
 | [[<页面标题>]] | <一句话摘要> | `#<标签1>` `#<标签2>` |
