@@ -109,6 +109,7 @@ status: draft | active | archived
 - `title` 与文件名一致；`sources` 指向 raw 来源目录（以 `/` 结尾）或文件路径，多个用 YAML 数组；`updated` 在正文、标签或来源元数据实质变化时刷新。
 - `tags` 是权威来源；inline `#tag` 如存在必须与 frontmatter 匹配。
 - **Tag 规范化**：只在 frontmatter `tags` 与 inline `#tag` 中规范化，**不自动改** domain、sources、raw/wiki 路径、目录名、文件名、页面标题、wiki 链接、图片嵌入或正文普通文本。标签片段中如有空白，统一用 `_` 连接（如 `AI Live` → `AI_Live`）。
+- **稀疏标签自动补齐（enhance-wiki-content 专属窄例外）**：页面 `tags` 缺失、为空数组、或去重后仅剩 1 个有效标签（如剪藏模板仅 `[clippings]`）时，`enhance-wiki-content` 自动补齐：保留既有标签及顺序（含 `clippings`），仅追加尚不存在的新标签，按目标 Wiki 的 Schema 与本页内容补充类型（`type/…`）、领域（`domain/…`）及有内容证据的主题标签；不硬编码任何特定知识库的路径或私有内容。已有 ≥2 个有效（去重后）标签时保持不变；既有重复标签不删除但在报告中注明；标签无法安全解析（YAML 破损等）时停止写入并报告；内容不足以确定主题时报告限制，不为凑数虚构标签。实际发生补齐时 `updated` 更新为当天（日期保护窄例外），并把新增标签同步到页面明确独立的 inline 标签区（正文、代码与引用中的 `#tag` 一律不改，无法安全同步时报告）；无标签变化时沿用原日期与元数据保护规则。
 - **结构性维护例外**：frontmatter 缺失或错位时，即使用户说 "append-only / 不改现有内容 / 放最后"，仍默认把 frontmatter 修复到第一行——这不计入"改动正文或顺序"。只有显式 "只读 / 不改任何文件" 才阻止写入。
 
 ## Windows 与 Python
@@ -593,7 +594,7 @@ missing_count / broken_count / duplicate_count ==  当次扫描结果
 
 - 用法：`/obsidian-llm-wiki <命令> --defer <原参数…>`；适用于 `ingest` / `optimize` / `enhance-wiki-content` / `update-raw-reference` / `extract-thinking-frameworks` / `migrate` / `delete`。
 - 带 `--defer` 时跳过：index.md 任何编辑、六变量精校、三处页脚同步、log.md 追加、log-preflight 预检。
-- 改为写一个队列片段 `logs/queue/<YYYYMMDD-HHMMSS>-<4位随机>-<动作>-<页面短名>.md`（模板 [assets/queue-fragment.md](assets/queue-fragment.md)）：元信息（task / date / page / section / summary）+ 现成 index 条目行 + 现成 log 条目全文——都在任务当下写好，摘要质量与增量模式一致。
+- 改为写一个队列片段 `logs/queue/<YYYYMMDD-HHMMSS>-<4位随机>-<动作>-<页面短名>.md`（模板 [assets/queue-fragment.md](assets/queue-fragment.md)）：元信息（task / date / page / section / summary；enhance 发生稀疏标签补齐时加注可选 `tag-sync: <说明>`——`flush_queue.py` 对白名单外键静默忽略，由 /sync agent 在 index 合并步读取）+ 现成 index 条目行（标签列为任务当下的权威标签）+ 现成 log 条目全文——都在任务当下写好，摘要质量与增量模式一致。
 - 片段写完即视为任务收尾；defer 期间 index 统计滞后是正常态，以最近一次 `/sync` 后的页脚为准；lint / query 照常报告缺口，但不把队列中已有片段的页面当「待补录」处理。
 - 不带 `--defer` 时，收尾流程与既有 SOP 完全一致（默认路径不变）。
 
@@ -609,7 +610,7 @@ missing_count / broken_count / duplicate_count ==  当次扫描结果
 无位置参数：`sync`（合并）与 `sync --dry-run`（只列出片段与校验结果，零写入）。空队列运行 = 幂等收敛（仅按需刷新页脚统计），安全。概要：
 
 1. 运行 `scripts/flush_queue.py --vault-root <vault> --dry-run` 列出并校验全部片段（merged / skipped_duplicate / dropped_missing_page / invalid）；零片段则直接进入页脚收敛，不取锁。
-2. index 条目合并（agent 执行）：按片段 `section` 定位分区插入数据行（同名分区多处时报告按现序判断；分区不存在按规范新建；页面已有条目跳过；delete 片段移除数据行）。
+2. index 条目合并（agent 执行）：按片段 `section` 定位分区插入数据行（同名分区多处时报告按现序判断；分区不存在按规范新建；页面已有条目跳过，但片段注明 `tag-sync` 元信息时改为更新既有条目的标签列——保留链接、摘要与分区位置，报告中列出；delete 片段移除数据行）。
 3. 运行 `references/index_stat.py` 精校 → 三处页脚同一次编辑同步（顶部维护块摘要 = 片段 summary 或 `同步索引：队列合并 N 条（…）`）→ 复验 `footer_match=true`。
 4. 对全部片段 log 条目 + `/sync` 自身最终记录跑一次 `log-preflight.ps1`（`rotation_due=true` 先轮转）；再运行 `scripts/flush_queue.py --vault-root <vault>` 完成按时间序追加、完整性验证（前缀 SHA-256 零改动 + 字节增量对账 + 标题全库唯一）与已合并片段单文件清理。
 5. `/sync` 自身最终 log 记录按常规 EOF 直追追加并验证；输出六变量 + 合并/跳过/丢弃清单。
@@ -757,8 +758,8 @@ Wiki 内容增强：`optimize` 的固定套路版。优化已有页面时**逐�
 2. **只读清点**：读页面全文与章节结构；提取全部 `![[...]]` 嵌入。已有正文与嵌入顺序是权威顺序，不重排、不删除、不改写；发现问题（重名/缺失/越界）先报告，不猜测。
 3. **媒体分析（仅形态 A，条件性）**：raw 目录含图片/视频时先建 media manifest，做媒体通道顺序探测后读取（图片 ≤10 张主线程直读，>10 张按 §Subagent 批量分析 派只读 subagent；视频默认自动探测读取，超限/失败条目走降级）；识别结果只作追加章节的依据，模糊或不确定内容显式标注，绝不虚构。带 `--no-video` 时跳过视频读取与探测，视频条目标注"视觉未识别（--no-video 跳过）"。形态 B 不派读取批次、不新增媒体分析。
 4. **末尾追加（append-only）**：把六节**追加在现有正文最后面**（既有 `## 相关` / `## 来源` 等收尾节之后；与既有同名节并存时不合并、保持追加位）；`关联 Wiki 连接` 节列 `[[页面标题]]` 链接，创建链接前确认目标页面存在，避免制造断链，不确定的概念放"待扩展"不伪装成链接；既有正文逐字不动。
-5. **frontmatter（块缺或缺字段均补，七字段齐全才只验证）**：frontmatter 块缺失，或块已存在但缺任一标准字段（title/created/updated/domain/tags/sources/status）时，按 §Frontmatter 与 Tag 规范化 补齐缺失项（结构性例外，可置于正文前）；既有非标字段（如 `author`/`date`）默认保留并存，来源语义写入正文边界说明，仅当用户明确要求清洗时移除。七字段齐全时只校验、不改动，`updated` 仅在发生实质追加时按全局规则刷新。
-6. **补录索引（缺才补、有则只验证）**：页面在 `index.md` 对应分区无条目时按 §Index Metadata And Statistics 补录（`indexed_page_count` +1，操作摘要 = `同步索引：补录既有页面 <页面名>`），顶部维护块 + 底部统计行 + 索引健康行同一次编辑，重跑精校确认 `footer_match=true`；已有条目则只验证链接可解析，跳过。
+5. **frontmatter（块缺或缺字段均补，七字段齐全才只验证）**：frontmatter 块缺失，或块已存在但缺任一标准字段（title/created/updated/domain/tags/sources/status）时，按 §Frontmatter 与 Tag 规范化 补齐缺失项（结构性例外，可置于正文前）；既有非标字段（如 `author`/`date`）默认保留并存，来源语义写入正文边界说明，仅当用户明确要求清洗时移除。七字段齐全时只校验、不改动，`updated` 仅在发生实质追加时按全局规则刷新。**稀疏标签补齐（本命令唯一 frontmatter 窄例外）**：七字段齐全但 `tags` 稀疏（缺失/空数组/去重后仅 1 个有效标签）时，按 §Frontmatter 与 Tag 规范化「稀疏标签自动补齐」追加标签；实际补齐时 `updated` 更新为当天，页面存在明确独立的 inline 标签区时只同步追加的新标签（正文、代码与引用中的 `#tag` 一律不改，无法安全同步时报告）；无标签变化时不触碰 `updated` 与其他既有元数据。
+6. **补录索引（缺才补、有则只验证）**：页面在 `index.md` 对应分区无条目时按 §Index Metadata And Statistics 补录（`indexed_page_count` +1，操作摘要 = `同步索引：补录既有页面 <页面名>`；本次发生稀疏标签补齐时，条目行携带补齐后的完整标签），顶部维护块 + 底部统计行 + 索引健康行同一次编辑，重跑精校确认 `footer_match=true`；已有条目则只验证链接可解析，**仅当本次发生稀疏标签补齐时，同步更新该条目的标签列**（保留链接、摘要与分区位置不动，操作摘要 = `同步索引：更新条目标签 <页面名>`，更新后按 §Index Metadata And Statistics 精校六变量与三处页脚——`indexed_page_count` 不变）。
 7. **收尾**：运行强制维护遍历；`log.md` 按「log.md 追加（大文件安全）」预检后追加一条最终记录（含形态 A/B、追加章节清单、frontmatter 与索引"补/验证"结果、六变量与变化类型）。
 
 ### /obsidian-llm-wiki delete \<page\>

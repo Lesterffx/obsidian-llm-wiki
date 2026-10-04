@@ -15,13 +15,14 @@
   - **log 条目**（`<!-- log-entry -->` 围栏）：现成的最终记录全文（`## [YYYY-MM-DD] 动作 | 标题` + 标准紧凑字段）。「维护」字段固定注明：`index/log 同步延后（defer），六变量以批次 /sync 精校为准`。
 - 最小合法性（`scripts/flush_queue.py` 逐项校验）：含队列标记 `obsidian-llm-wiki queue v1`、两个围栏齐全、log 条目有 `## [` 标题、`date` 与标题日期一致、`page` 存在且位于 `wiki/` 下。
 - 同日同页同动作会产生相同条目标题——写片段时在标题中加区分词，避免合并时被去重跳过。
+- 可选元信息 `tag-sync: <说明>`：enhance-wiki-content 发生稀疏标签补齐时加注；`scripts/flush_queue.py` 的 `META_KEYS` 白名单外的键会被静默忽略（不校验、不报错），由 /sync 的 agent 在 index 合并步读取，据此更新既有条目的标签列（规则详见 [tag-backfill.md](tag-backfill.md)）。
 
 ## 2. defer 模式任务收尾 SOP
 
 写命令（ingest / optimize / enhance-wiki-content / update-raw-reference / extract-thinking-frameworks / migrate / delete）带 `--defer` 时（参数紧跟命令名，位置参数原样保留）：
 
 1. 页面级工作**照常全部完成**：frontmatter、正文、图片嵌入、sources、交叉引用、页面级验证、raw 只读红线等一律不变。
-2. 按模板构造队列片段：index 条目行 + log 条目全文都在任务当下写好（此时上下文最新鲜）。
+2. 按模板构造队列片段：index 条目行 + log 条目全文都在任务当下写好（此时上下文最新鲜）；enhance 发生稀疏标签补齐时，index 条目行的标签列写补齐后的完整标签、加注 `tag-sync` 元信息，log 条目「变更」注明补齐明细。
 3. 用唯一文件名写入 `logs/queue/`；**不做** index.md 编辑、六变量精校、三处页脚同步、log-preflight 预检、log.md 追加。
 4. 汇报：片段路径 + 「已入队待 /sync 合并」清单。片段写完即视为任务收尾（defer 分支的完成标准）。
 5. `delete --defer` 的片段照常写（index 条目围栏留空说明、log 条目记录删除动作）；条目移除由 `/sync` 执行。
@@ -37,7 +38,7 @@
 3. **index 条目合并**（agent 执行，逐片段）：
    - 按 `section` 定位分区章节；**同名分区存在多处时报告并按现有章节顺序判断归属**（不确定则放入第一处并报告）；
    - 分区不存在时按 §Index 章节与表格规范新建（表头 `| 页面 | 摘要 | 标签 |` + 分隔行，位置遵循现有章节排序约定）；
-   - 页面已有条目（按 `[[页面标题]]` 查重）→ 跳过插入；
+   - 页面已有条目（按 `[[页面标题]]` 查重）→ 跳过插入；**片段注明 `tag-sync` 元信息时改为更新既有条目的标签列**（以片段 index 条目的标签列为准，保留链接、摘要与分区位置，报告中列出）；
    - `delete` 片段 → 移除对应数据行；
    - 插入/移除后不单独跑精校——留到下一步统一做。
 4. **统一精校 + 三处页脚同步**：运行 `references/index_stat.py` 得六变量终值 → 顶部维护块（`<summary>` 或 `同步索引：队列合并 N 条（页面A、页面B…）`）+ 底部统计行 + 索引健康行**同一次编辑**，三处日期字面一致 → 重跑精校确认 `footer_match=true`（并行漂移则按最终扫描值二次覆盖）。

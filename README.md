@@ -187,7 +187,7 @@ Skill 的媒体分析管线对图片与视频一视同仁：`Read` 原生支持�
 | `/obsidian-llm-wiki index` | 从当前 wiki 状态**全量重建** `index.md`，按三权威变量 + 三健康变量 + 索引健康行刷新。增量更新由 ingest/optimize/extract-thinking-frameworks/migrate/delete 触发；本命令只做全量重建。详见 SKILL.md `## Index Metadata And Statistics` |
 | `/obsidian-llm-wiki log <mode>` | 日志工作流：`status`（只读预检详情）/ `query "<条件>"`（活动日志与历史分卷有界检索）/ `rotate now\|year\|size\|auto`（整文件移动式分卷轮转，见 `references/log-rotation.md`）。写入型任务追加 `log.md` 前自动跑 2 MiB 固定预检 |
 | `/obsidian-llm-wiki update-raw-reference <页面.md> <raw目录>` | 媒体引用修复：把页面图片/视频嵌入一站式改写到指定 raw 目录的全路径嵌入格式 `![[raw/…]]`；frontmatter（块缺或缺字段均补）与索引条目**缺才补、有则只验证** |
-| `/obsidian-llm-wiki enhance-wiki-content <页面.md> [raw目录]` | Wiki 内容增强：逐字保留正文与图片/视频嵌入顺序，文末统一追加六节（资料总结/洞见/方法论提炼/最佳实践/金句精选/关联 Wiki 连接）；带 raw 目录时先建 image manifest 再分析；frontmatter（块缺或缺字段均补）与索引条目**缺才补、有则只验证** |
+| `/obsidian-llm-wiki enhance-wiki-content <页面.md> [raw目录]` | Wiki 内容增强：逐字保留正文与图片/视频嵌入顺序，文末统一追加六节（资料总结/洞见/方法论提炼/最佳实践/金句精选/关联 Wiki 连接）；带 raw 目录时先建 image manifest 再分析；frontmatter（块缺或缺字段均补）与索引条目**缺才补、有则只验证**；**稀疏标签自动补齐**（缺失/空/去重后仅 1 个有效标签时保留既有仅追加，同步索引条目标签列，补齐当日刷新 `updated`；详见 `references/tag-backfill.md`） |
 | `/obsidian-llm-wiki sync` | defer 队列合并：把 `logs/queue/` 中各 `--defer` 任务写好的片段一次性合并进 `index.md` 与 `log.md`（共享文件唯一写者；空队列运行 = 幂等收敛）。与增量（各写命令）/ 全量（`/index`）互为补集 |
 
 ### 并行维护：--defer 与 sync（延后同步）
@@ -233,6 +233,7 @@ optimize 的固定套路版：逐字保留已有正文、图片与视频嵌入�
 - **正文不动、只追加**：既有正文与嵌入顺序是权威顺序，不重排、不删除、不改写；六节统一追加在现有正文最后面。
 - **与 optimize 的分工**：optimize 允许优化表达、结构与既有内容；enhance-wiki-content 不做表达改写，是"正文不动、只追加"的安全增强入口。
 - **缺才补、有则只验证**：frontmatter 块缺失或缺任一标准字段时补齐至七字段（既有非标字段如 `author`/`date` 默认保留并存），`index.md` 无条目时补录并刷新统计；两者已齐全时仅校验跳过。
+- **稀疏标签自动补齐（窄例外）**：`tags` 缺失、为空数组、或去重后仅剩 1 个有效标签（如剪藏模板仅 `[clippings]`）时，保留既有标签及顺序仅追加尚不存在的新标签（类型 `type/…`、领域 `domain/…` 及有内容证据的主题标签，不虚构、不凑数）；已有 ≥2 个有效标签时保持不变；YAML 无法安全解析时停止写入并报告；实际补齐时 `updated` 更新为当天，无标签变化沿用原日期保护规则；已收录页面只同步索引条目的标签列并精校页脚，`--defer` 片段加注 `tag-sync` 元信息、`/sync` 据此更新既有条目标签列（队列格式不变）。规则详解与验证说明见 `references/tag-backfill.md`。
 
 ## 日志预检与分卷（log）
 
