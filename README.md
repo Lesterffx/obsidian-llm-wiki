@@ -101,7 +101,7 @@ claude mcp add -s user zai-mcp-server --env Z_AI_API_KEY=YOUR_API_KEY -- npx -y 
 
 Skill 的媒体分析管线对图片与视频一视同仁：`Read` 原生支持图片（PNG/JPG 等）与视频（MP4/MOV/WEBM 等，受运行时视频输入上限约束），页面与 raw 目录中的视频嵌入（如 `![[...mp4]]`）作为 manifest 一等条目自动处理。
 
-- **顺序探测**：读取前先探测通道——图片用一张代表性图试 `Read`；视频用 manifest 中最小的一个代表性视频试 `Read`，返回带时间戳的抽帧画面即通道可用。**探测前不得预判视频不可读。**
+- **顺序探测**：读取前先探测通道——图片用一张代表性图试 `Read`；视频先 ffprobe 取体积/时长，再用 manifest 中最小的一个代表性视频试 `Read`，返回带时间戳的抽帧画面即通道可用。**探测前不得预判视频不可读。**
 - **兜底**：`Read` 不可用（典型为第三方网关多模态下推未启用）时，走 `zai-mcp-server` 视觉 MCP——图片 `analyze_image`，视频 `analyze_video`（本地文件 ≤8MB，MP4/MOV/M4V，传本地绝对路径）。
 - **超限/长视频降级**：单文件超限或视觉 MCP 均不可用时，优先用运行时可用的视频工具抽帧/转写（如 ZCode 的 video2code / video-agent-kit 插件）；都不可用才标注"视频视觉未识别"并记未决项，绝不依文件名虚构画面内容。
 - **`--no-video` 参数**：`ingest` / `optimize` / `enhance-wiki-content` 支持该参数——跳过视频读取与探测（视频条目标注"视觉未识别（--no-video 跳过）"），仅分析图片与文字；可与 `--defer` 组合。
