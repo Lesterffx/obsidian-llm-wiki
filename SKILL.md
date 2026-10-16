@@ -1,6 +1,6 @@
 ---
 name: obsidian-llm-wiki
-description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wiki 双层 + AGENTS.md/CLAUDE.md schema + index.md + log.md）。命令：ingest、query、query-image、optimize、enhance-wiki-content、update-raw-reference、extract-thinking-frameworks、lint、index、migrate、delete、log、sync；强制维护遍历自动检查并修复 frontmatter/index/schema 结构缺口；index.md 六变量统计与索引健康行；双入口 schema 字节一致并验 SHA-256。支持只读 subagent 波次并行分析图片密集资料（100–300 张读图）、项目 .venv 做 PDF/DOCX/PPTX/XLSX 预处理与 image manifest、视觉通道探测与读图降级、log 大文件安全追加与日志分卷轮转、defer 延后同步与 sync 队列合并。触发词：wiki、知识库维护、知识管理、Obsidian 笔记整理、ingest、optimize、lint、index、补录、enhance、内容增强、六变量统计、漂移修正、双入口 schema、batch-analyze images、subagent、波次并行、manifest、venv、读图降级、视觉通道探测、视觉 MCP、zai-mcp-server、GLM-4.6V、GLM/MiniMax 网关、log-preflight、日志分卷、log status、log query、log rotate、preprocess_pdf.py、temp-cleanup、query-image、图片查询、截图检索、update-raw-reference、媒体引用修复、嵌入改写、defer、sync、队列合并、多运行时并行维护。"
+description: "LLM Wiki 模式：用 LLM 持续维护 Obsidian 知识库（raw/wiki 双层 + AGENTS.md/CLAUDE.md schema + index.md + log.md）。命令：ingest、query、query-image、optimize、enhance-wiki-content、update-raw-reference、extract-thinking-frameworks、lint、index、migrate、delete、log、sync；强制维护遍历自动检查并修复 frontmatter/index/schema 结构缺口；index.md 六变量统计与索引健康行；双入口 schema 字节一致并验 SHA-256。支持只读 subagent 波次并行分析图片密集资料（100–300 张读图）、项目 .venv 做 PDF/DOCX/PPTX/XLSX 预处理与 image manifest、视觉通道探测与读图降级、log 大文件安全追加与日志分卷轮转、defer 延后同步与 sync 队列合并。触发词：wiki、知识库维护、知识管理、Obsidian 笔记整理、ingest、optimize、lint、index、补录、enhance、内容增强、六变量统计、漂移修正、双入口 schema、batch-analyze images、subagent、波次并行、manifest、venv、读图降级、视觉通道探测、视觉 MCP、zai-mcp-server、GLM-4.6V、GLM/MiniMax 网关、log-preflight、日志分卷、log status、log query、log rotate、preprocess_pdf.py、preprocess_video.py、video-reading、视频阅读、抽帧、SRT/VTT 字幕、--no-video、temp-cleanup、query-image、图片查询、截图检索、update-raw-reference、媒体引用修复、嵌入改写、defer、sync、队列合并、多运行时并行维护。"
 ---
 
 # Obsidian LLM Wiki Skill
@@ -173,7 +173,7 @@ PYTHONUTF8=1 PYTHONIOENCODING=utf-8 \
 3. **覆盖风险检测（报告而不猜测）**：检测重名文件、缺失文件、位于 declared `sources` 之外的媒体；**不要猜测**哪个重名文件是意图所指——报告出来让用户/主 agent 决定。嵌入唯一命中其他 raw 目录（跨目录媒体/同图双存）时：短文件名全库唯一即可正常解析、不算断链，按 vault 先例在 frontmatter `sources` **登记多个目录**，**不移动 raw 文件**。
 4. **分析可追溯**：中间笔记放工作上下文或最终回复，**不写 `raw/`**；写 wiki 内容时用文件名 + manifest index 标识每个媒体条目。
 
-**视频条目批量策略**：视频不按图片张数计档——默认随 manifest 自动探测读取（页面视频通常少量，主线程逐个直读即可）。**读取前先 ffprobe 取体积与时长（第 0 步，本地零 token）**：量级 ≤30MB 且时长较短（约 ≤60s）直接 `Read` 试读；超长（>60s）或超大文件优先本地 ffmpeg 稀疏抽帧（如每 5–10 秒一帧）后 `Read` 抽帧图，控制 token 成本，确需全程细节再整读。单页视频 >3 个时，参照 §Subagent 批量分析 的波次机制拆批，或先与用户确认读取范围。
+**视频条目批量策略**：视频不按图片张数计档——默认随 manifest 自动探测读取（页面视频通常少量，主线程逐个直读即可）。**读取前先 ffprobe 取体积与时长（第 0 步，本地零 token）**：量级 ≤30MB 且时长较短（约 ≤60s）直接 `Read` 试读；超长（>60s）或超大文件优先用固定脚本 `scripts/preprocess_video.py` 本地稀疏抽帧（默认每 5 秒一帧加末段，每视频最多 60 帧，长视频均匀扩大间隔，1600px 保宽高比）后 `Read` 抽帧图，控制 token 成本，确需全程细节再整读；手工 `ffmpeg` 命令仅作脚本不可用时的兜底。视频抽样预算、字幕证据（可见字幕与同主名 SRT/VTT）、manifest 记录与清理收尾的完整协议见 [references/video-reading.md](references/video-reading.md)。单页视频 >3 个时，参照 §Subagent 批量分析 的波次机制拆批，或先与用户确认读取范围。
 
 ## Subagent 批量分析（Claude Code 适配）
 
@@ -287,7 +287,7 @@ PYTHONUTF8=1 PYTHONIOENCODING=utf-8 \
   - MiniMax 网关：**未验证**（待测；若在此网关下，先做顺序探测，把结果回写本节）。
   - **视频**：ZCode 运行时（GLM 模型）：`Read` 视频**已验证可用**（2026-09-21 实测：MP4 约 1.8MB / 7 秒返回 9 帧带时间戳抽帧画面；2026-10-14 实测：28.1MB / 18.76 秒 MP4 直接 Read 成功，返回约 10 帧时间戳抽帧画面——已验证上限至少 28MB/约 19s；更大体积与更长时长未测，超限报错形态仍待积累）。
   - **视频**：Claude Code + 智谱 GLM 网关：`Read` 视频**未验证**（图片已证不可用，大概率同失效——先探测；兜底 `zai-mcp-server` `analyze_video`，本地 ≤8MB，MP4/MOV/M4V）。
-- **超限/长视频降级**：`Read` 与视觉 MCP 均因体积/时长失败的条目，优先用本地 ffmpeg 抽帧（`ffmpeg -i in.mp4 -vf fps=1/N out/%02d.jpg` 后 `Read` 抽帧图；超宽/超大图片同法缩放转码补读，均已实测走通），其次再考虑运行时可用的 video2code / video-agent-kit 插件（帧采样与语音转写工具）；这些也不可用时，才标注"视频视觉未识别"并把"待视频通道可用后补精确转写"记为未决项。
+- **超限/长视频降级**：`Read` 与视觉 MCP 均因体积/时长失败的条目，优先用固定脚本 `scripts/preprocess_video.py` 本地抽帧（预算与产物规则见 [references/video-reading.md](references/video-reading.md)，`Read` 抽帧图），脚本不可用时退回手工 `ffmpeg -i in.mp4 -vf fps=1/N out/%02d.jpg` 抽帧（超宽/超大图片同法缩放转码补读，均已实测走通），其次再考虑运行时可用的 video2code / video-agent-kit 插件（帧采样与语音转写工具）；这些也不可用时，才标注"视频视觉未识别"并把"待视频通道可用后补精确转写"记为未决项。
 - 探测结果写入当次 `log.md` 条目（视觉/视频通道：Read 可用 / 视觉 MCP 可用 / 均不可用 + 运行时名 + 网关/模型名）。
 
 ### 视觉/视频不可用时的降级流程
@@ -602,8 +602,8 @@ missing_count / broken_count / duplicate_count ==  当次扫描结果
 ### --no-video 参数（媒体分析型命令通用可选参数）
 
 - 用法：`/obsidian-llm-wiki <命令> --no-video <原参数…>`；适用于做媒体分析的 `ingest` / `optimize` / `enhance-wiki-content`。
-- 带该参数时：跳过视频读取与视频通道探测，media manifest 照建（视频条目标注"视觉未识别（--no-video 跳过）"），仅分析图片与文字。适用于省 token、隐私评估，或视频通道明确不可用且无需兜底的场景。
-- 不带该参数时（默认）：视频是 media manifest 的一等条目，自动走 §运行时与网关适配 的视频顺序探测并读取；超限/失败条目自动降级标注，不影响其他媒体。
+- 带该参数时：跳过视频读取、视频通道探测与附属字幕（同主名 SRT/VTT）发现读取，media manifest 照建（视频条目标注"视觉未识别（--no-video 跳过）"），仅分析图片与文字。适用于省 token、隐私评估，或视频通道明确不可用且无需兜底的场景。
+- 不带该参数时（默认）：视频是 media manifest 的一等条目，自动走 §运行时与网关适配 的视频顺序探测并读取；抽样预算、字幕证据与披露措辞按 [references/video-reading.md](references/video-reading.md) 执行；超限/失败条目自动降级标注，不影响其他媒体。
 - 可与 `--defer` 组合使用。
 
 ### /obsidian-llm-wiki sync（队列合并，共享文件唯一写者）
