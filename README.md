@@ -103,8 +103,9 @@ Skill 的媒体分析管线对图片与视频一视同仁：`Read` 原生支持�
 
 - **顺序探测**：读取前先探测通道——图片用一张代表性图试 `Read`；视频先 ffprobe 取体积/时长，再用 manifest 中最小的一个代表性视频试 `Read`，返回带时间戳的抽帧画面即通道可用。**探测前不得预判视频不可读。**
 - **兜底**：`Read` 不可用（典型为第三方网关多模态下推未启用）时，走 `zai-mcp-server` 视觉 MCP——图片 `analyze_image`，视频 `analyze_video`（本地文件 ≤8MB，MP4/MOV/M4V，传本地绝对路径）。
-- **超限/长视频降级**：单文件超限或视觉 MCP 均不可用时，优先用运行时可用的视频工具抽帧/转写（如 ZCode 的 video2code / video-agent-kit 插件）；都不可用才标注"视频视觉未识别"并记未决项，绝不依文件名虚构画面内容。
-- **`--no-video` 参数**：`ingest` / `optimize` / `enhance-wiki-content` 支持该参数——跳过视频读取与探测（视频条目标注"视觉未识别（--no-video 跳过）"），仅分析图片与文字；可与 `--defer` 组合。
+- **超限/长视频降级**：单文件超限或视觉 MCP 均不可用时，优先用固定脚本 `scripts/preprocess_video.py` 本地抽帧（默认每 5 秒一帧加末段、每视频最多 60 帧、1600px 保宽高比）后 `Read` 抽帧图，其次用运行时可用的视频工具抽帧/转写（如 ZCode 的 video2code / video-agent-kit 插件）；都不可用才标注"视频视觉未识别"并记未决项，绝不依文件名虚构画面内容。
+- **视频阅读协议**：抽样预算、可见字幕与同主名 SRT/VTT 证据（画面/字幕/正文分别标注，禁 ASR 与新上传服务）、源哈希前后校验、任务临时目录（`created_files.json` 先登记后解码，按 temp-cleanup.md 逐文件清理）与"无可用证据不写入内容、单视频失败不阻塞其他视频"的完整规则见 [references/video-reading.md](references/video-reading.md)；脚本只用 Python 标准库与既有 ffprobe/ffmpeg，不安装工具、不改 PATH；抽帧本地完成，视觉分析仍走当前模型服务，视频/字幕/抽帧/真实路径哈希不入库不公开。
+- **`--no-video` 参数**：`ingest` / `optimize` / `enhance-wiki-content` 支持该参数——跳过视频读取、探测与附属字幕查找（视频条目标注"视觉未识别（--no-video 跳过）"），仅分析图片与文字；可与 `--defer` 组合。
 
 ## 限制条件
 
@@ -141,15 +142,17 @@ Skill 的媒体分析管线对图片与视频一视同仁：`Read` 原生支持�
 │   ├── log-active.md     # 新活动日志模板（仅在一次成功分卷轮转后使用）
 │   └── queue-fragment.md # defer 队列片段模板（--defer 任务专用）
 ├── scripts/
-│   ├── log-preflight.ps1 # 固定只读日志预检（2 MiB 阈值 + 跨年判定；Git Bash 经 powershell.exe 调用，中文文本走 -PendingAppendB64）
-│   ├── preprocess_pdf.py # 固定 PDF 预处理（pypdf/PyMuPDF 双提取器 + 逐页乱码质量判定 + created_files.json 清理清单）
-│   └── flush_queue.py    # defer 队列合并脚本（/sync 机械执行部分：锁、按序追加 log、完整性验证、片段清理）
+│   ├── log-preflight.ps1  # 固定只读日志预检（2 MiB 阈值 + 跨年判定；Git Bash 经 powershell.exe 调用，中文文本走 -PendingAppendB64）
+│   ├── preprocess_pdf.py  # 固定 PDF 预处理（pypdf/PyMuPDF 双提取器 + 逐页乱码质量判定 + created_files.json 清理清单）
+│   ├── preprocess_video.py # 视频本地抽样脚本（纯标准库 + 既有 ffprobe/ffmpeg；5 秒/60 帧预算、SRT/VTT 候选、源哈希校验、created_files.json 登记）
+│   └── flush_queue.py     # defer 队列合并脚本（/sync 机械执行部分：锁、按序追加 log、完整性验证、片段清理）
 └── references/
     ├── schema.md              # AGENTS.md / CLAUDE.md 通用模板（供新项目初始化）
     ├── index_stat.py          # index.md 六变量精校脚本
     ├── log-rotation.md        # 日志分卷/轮转参考（log status / query / rotate）
     ├── pdf-preprocessing.md   # PDF 预处理协议（固定入口、质量判定、视觉降级）
     ├── temp-cleanup.md        # 任务临时目录清理协议（created_files.json 驱动）
+    ├── video-reading.md       # 视频阅读协议（选项路由、有序 manifest、能力探测与本地抽样、既有字幕、清理收尾）
     └── defer-sync.md          # 延后同步（--defer）与队列合并（/sync）完整 SOP
 ```
 
