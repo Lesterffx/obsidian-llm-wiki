@@ -2,6 +2,8 @@
 
 用 LLM 持续维护 Obsidian 知识库的 Claude Code 全局 Skill。基于 raw/wiki/schema 三层架构，让 LLM 承担知识库的整理、交叉引用和更新工作。
 
+以本地开发与使用版本为准；GitHub 仓库仅作脱敏备份——真实知识库资料、批次清单与测试产物不入库。
+
 ## 灵感来源
 
 本方案灵感来自 Andrej Karpathy 的 [llm-wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) 知识管理理念。
@@ -189,8 +191,8 @@ Skill 的媒体分析管线对图片与视频一视同仁：`Read` 原生支持�
 | `/obsidian-llm-wiki migrate` | 一次性迁移：将已有笔记迁移到 LLM Wiki 模式 |
 | `/obsidian-llm-wiki index` | 从当前 wiki 状态**全量重建** `index.md`，按三权威变量 + 三健康变量 + 索引健康行刷新。增量更新由 ingest/optimize/extract-thinking-frameworks/migrate/delete 触发；本命令只做全量重建。详见 SKILL.md `## Index Metadata And Statistics` |
 | `/obsidian-llm-wiki log <mode>` | 日志工作流：`status`（只读预检详情）/ `query "<条件>"`（活动日志与历史分卷有界检索）/ `rotate now\|year\|size\|auto`（整文件移动式分卷轮转，见 `references/log-rotation.md`）。写入型任务追加 `log.md` 前自动跑 2 MiB 固定预检 |
-| `/obsidian-llm-wiki update-raw-reference <页面.md> <raw目录>` | 媒体引用修复：把页面图片/视频嵌入一站式改写到指定 raw 目录的全路径嵌入格式 `![[raw/…]]`；frontmatter（块缺或缺字段均补）与索引条目**缺才补、有则只验证** |
-| `/obsidian-llm-wiki enhance-wiki-content <页面.md> [raw目录]` | Wiki 内容增强：逐字保留正文与图片/视频嵌入顺序，文末统一追加六节（资料总结/洞见/方法论提炼/最佳实践/金句精选/关联 Wiki 连接）；带 raw 目录时先建 image manifest 再分析；frontmatter（块缺或缺字段均补）与索引条目**缺才补、有则只验证**；**稀疏标签自动补齐**（缺失/空/去重后仅 1 个有效标签时保留既有仅追加，同步索引条目标签列，补齐当日刷新 `updated`；详见 `references/tag-backfill.md`） |
+| `/obsidian-llm-wiki update-raw-reference <页面.md\|目录> <raw目录>` | 媒体引用修复：把页面图片/视频嵌入一站式改写到指定 raw 目录的全路径嵌入格式 `![[raw/…]]`；第一参数支持文件或目录批量（见下方「目录批量处理」）；frontmatter（块缺或缺字段均补）与索引条目**缺才补、有则只验证** |
+| `/obsidian-llm-wiki enhance-wiki-content <页面.md\|目录> [raw目录]` | Wiki 内容增强：逐字保留正文与图片/视频嵌入顺序，文末统一追加六节（资料总结/洞见/方法论提炼/最佳实践/金句精选/关联 Wiki 连接）；带 raw 目录时先建 image manifest 再分析；第一参数支持文件或目录批量（见下方「目录批量处理」）；frontmatter（块缺或缺字段均补）与索引条目**缺才补、有则只验证**；**稀疏标签自动补齐**（缺失/空/去重后仅 1 个有效标签时保留既有仅追加，同步索引条目标签列，补齐当日刷新 `updated`；详见 `references/tag-backfill.md`） |
 | `/obsidian-llm-wiki sync` | defer 队列合并：把 `logs/queue/` 中各 `--defer` 任务写好的片段一次性合并进 `index.md` 与 `log.md`（共享文件唯一写者；空队列运行 = 幂等收敛）。与增量（各写命令）/ 全量（`/index`）互为补集 |
 
 ### 并行维护：--defer 与 sync（延后同步）
@@ -215,7 +217,7 @@ Skill 的媒体分析管线对图片与视频一视同仁：`Read` 原生支持�
 /obsidian-llm-wiki update-raw-reference wiki/<领域>/<页面>.md raw/<领域>/<资料名>/
 ```
 
-- **参数校验是硬门槛**：参数 1 必须是 `wiki/` 下真实存在的 `.md` 文件，参数 2 必须是 `raw/` 下真实存在的目录；不合法立即报错、零写入。
+- **参数校验是硬门槛**：参数 1 是 `wiki/` 下真实存在的 `.md` 文件或目录，参数 2 必须是 `raw/` 下真实存在的目录；不合法立即报错、零写入（目录输入见下方「目录批量处理」）。
 - **改写前逐条验证**：仅当目标 raw 目录中存在同名文件时才改写为 `![[raw/<目录>/<文件名>]]`；通用易重名文件名（如 `image-001.png`）必须用全路径，防跨目录误解析；改写绝不移动/修改 `raw/` 文件，绝不删除既有嵌入。
 - **同名不强制**：页面名称与 raw 目录名通常相同，但不一致时照常执行，仅在报告中提示。
 - **缺才补、有则只验证**：frontmatter 块缺失或缺任一标准字段时补齐至七字段（既有非标字段如 `author`/`date` 默认保留并存），`index.md` 无条目时补录并刷新统计；两者已齐全时仅校验跳过。
@@ -232,11 +234,28 @@ optimize 的固定套路版：逐字保留已有正文、图片与视频嵌入�
 /obsidian-llm-wiki enhance-wiki-content wiki/<领域>/<页面>.md
 ```
 
-- **参数校验是硬门槛**：参数 1 必须是 `wiki/` 下真实存在的 `.md` 文件；形态 A 的参数 2 必须是 `raw/` 下真实存在的目录；不合法立即报错、零写入。
+- **参数校验是硬门槛**：参数 1 是 `wiki/` 下真实存在的 `.md` 文件或目录；形态 A 的参数 2 必须是 `raw/` 下真实存在的目录；不合法立即报错、零写入（目录输入见下方「目录批量处理」）。
 - **正文不动、只追加**：既有正文与嵌入顺序是权威顺序，不重排、不删除、不改写；六节统一追加在现有正文最后面。
 - **与 optimize 的分工**：optimize 允许优化表达、结构与既有内容；enhance-wiki-content 不做表达改写，是"正文不动、只追加"的安全增强入口。
 - **缺才补、有则只验证**：frontmatter 块缺失或缺任一标准字段时补齐至七字段（既有非标字段如 `author`/`date` 默认保留并存），`index.md` 无条目时补录并刷新统计；两者已齐全时仅校验跳过。
 - **稀疏标签自动补齐（窄例外）**：`tags` 缺失、为空数组、或去重后仅剩 1 个有效标签（如剪藏模板仅 `[clippings]`）时，保留既有标签及顺序仅追加尚不存在的新标签（类型 `type/…`、领域 `domain/…` 及有内容证据的主题标签，不虚构、不凑数）；已有 ≥2 个有效标签时保持不变；YAML 无法安全解析时停止写入并报告；实际补齐时 `updated` 更新为当天，无标签变化沿用原日期保护规则；已收录页面只同步索引条目的标签列并精校页脚，`--defer` 片段加注 `tag-sync` 元信息、`/sync` 据此更新既有条目标签列（队列格式不变）。规则详解与验证说明见 `references/tag-backfill.md`。
+
+### 目录批量处理（文件或目录输入）
+
+`update-raw-reference` 与 `enhance-wiki-content` 的第一参数可以是**文件或目录**。文件输入保持原有单页行为（显式 raw 目录可与页面不同名）；目录输入只处理该目录**直属**的 `.md` 文件（不递归），按自然文件名顺序逐页执行（如 `5-2` 排在 `5-10` 前）。第二参数作为 raw 根目录时，每页只匹配其下与文件名去掉 `.md` 后**完整同名**的直属子目录，不按编号、模糊名称或列表位置配对：
+
+```bash
+/obsidian-llm-wiki enhance-wiki-content wiki/<领域>/<章节>/ [raw/<领域>/<章节>/]
+/obsidian-llm-wiki enhance-wiki-content --no-video --defer wiki/<领域>/<章节>/ raw/<领域>/<章节>/
+/obsidian-llm-wiki update-raw-reference --defer wiki/<领域>/<章节>/ raw/<领域>/<章节>/
+```
+
+- **缺失 raw 分流**：某页的同名 raw 子目录缺失时，`enhance-wiki-content` 该页降为仅本页正文模式（不读 raw、不读媒体）；`update-raw-reference` 该页**整页跳过**（不改引用、元数据、索引、日志或队列），继续处理其他页。不使用 raw 根目录或其他页的来源替代。
+- **整批预检**：写入前先固定处理清单（页面、对应 raw、执行模式），统一校验参数、真实路径边界与全部待执行页的 frontmatter；安全错误**整批零写入**；空目录无操作。
+- **标志沿用原范围**：`--defer`、`--no-video` 传递给每页（`--no-video` 仅 `enhance-wiki-content` 支持）；不自动启用 defer、sync 或并行处理。普通模式逐变化页收尾，defer 逐页入队。
+- **批次结果清单**：逐页报告有效模式、已变更、无变化、跳过或失败及未完成收尾；部分失败不算整批成功。
+
+完整规则与虚构验收案例见 [references/directory-batch.md](references/directory-batch.md) 与 SKILL.md「目录输入（页面工作流）」。真实批次清单、页面名称、raw 配对、跳过原因、页面内容与测试运行产物均属私人资料，不进入公开 commit 或 PR；公开示例只使用占位符或虚构名称。
 
 ## 日志预检与分卷（log）
 
